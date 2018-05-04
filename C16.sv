@@ -216,7 +216,7 @@ reg [15:0] dl_addr;
 reg  [7:0] dl_data;
 reg        dl_wr;
 reg        model;
-reg        ext_reset;
+reg        ext_reset = 0;
 
 always @(posedge clk_sys) begin
 	reg        old_download = 0;
@@ -256,7 +256,7 @@ always @(posedge clk_sys) begin
 		13: begin dl_addr <= 16'hae; dl_data <= addr[7:0];  dl_wr <= 1; end
 		15: begin dl_addr <= 16'haf; dl_data <= addr[15:8]; dl_wr <= 1; end
 	endcase
-
+/*
 	if(sys_reset) {st, ext_reset} <= 2'b11;
 
 	if(ext_reset & ~sys_reset) begin
@@ -275,6 +275,7 @@ always @(posedge clk_sys) begin
 			dl_wr <= 1;
 		end
 	end
+*/
 end
 
 wire [7:0] ram_dout;
