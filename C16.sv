@@ -111,7 +111,7 @@ assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3;
 wire [1:0] scale = status[3:2];
 
 `include "build_id.v" 
-parameter CONF_STR = {
+parameter CONF_STR1 = {
 	"C16;;",
 	"-;",
 	"F,PRG;",
@@ -124,7 +124,11 @@ parameter CONF_STR = {
 	"-;",
 	"O5,Joysticks swap,No,Yes;",
 	"-;",
-	"O4,Model,C16,Plus/4;",
+	"O4,Model,C16,Plus/4;"
+};
+
+parameter CONF_STR2 = {
+	"6,Kernal,from boot.rom,Original;",
 	"-;",
 	"R0,Reset;",
 	"J,Fire;",
@@ -245,12 +249,12 @@ wire        sd_buff_wr;
 wire        img_mounted;
 wire        img_readonly;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.STRLEN(($size(CONF_STR1)>>3)+($size(CONF_STR2)>>3)+1)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 
-	.conf_str(CONF_STR),
+	.conf_str({CONF_STR1, rom_loaded ? "O" : "+", CONF_STR2}),
 
 	.buttons(buttons),
 	.status(status),
@@ -357,9 +361,12 @@ end
 
 /////////////////   ROM   /////////////////////////
 
+reg rom_loaded =0;
+always @(posedge clk_sys) if(ioctl_wr && (ioctl_addr[24:14]==1) && !ioctl_index) rom_loaded <=1;
+
 // Kernal rom
-wire [7:0] kernal_dout;
-gen_rom #("roms/c16_kernal.mif") kernal
+wire [7:0] kernal0_dout;
+gen_rom #("roms/c16_kernal.mif") kernal0
 (
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
@@ -368,8 +375,19 @@ gen_rom #("roms/c16_kernal.mif") kernal
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
-	.q(kernal_dout),
-	.cs(~cs1 && (!romh || kern))
+	.q(kernal0_dout),
+	.cs(~cs1 && (!romh || kern) && ~status[6])
+);
+
+wire [7:0] kernal1_dout;
+gen_rom #("roms/c16_kernal.mif") kernal1
+(
+	.wrclock(clk_sys),
+
+	.rdclock(clk_c16),
+	.rdaddress(c16_addr[13:0]),
+	.q(kernal1_dout),
+	.cs(~cs1 && (!romh || kern) && status[6])
 );
 
 // Basic rom
@@ -474,7 +492,7 @@ wire [15:0] c16_addr;
 wire        c16_rnw;
 wire        pal;
 
-wire  [7:0] c16_din = ram_dout&kernal_dout&basic_dout&fh_dout&fl_dout&cartl_dout&carth_dout;
+wire  [7:0] c16_din = ram_dout & kernal0_dout & kernal1_dout & basic_dout & fh_dout & fl_dout & cartl_dout & carth_dout;
 
 wire        cs_ram,cs0,cs1,cs_io;
 C16 c16
