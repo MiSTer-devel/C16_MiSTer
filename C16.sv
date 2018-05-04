@@ -133,16 +133,90 @@ parameter CONF_STR = {
 
 /////////////////  CLOCKS  ////////////////////////
 
-wire clk_sys, clk_c16;
+wire clk_sys;
+wire clk_c16 = clk_x2 & clk_en;
+wire clk_x2;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys),
-	.outclk_1(clk_c16),
-	.outclk_2(CLK_VIDEO)
+	.outclk_0(clk_sys)
 );
+
+wire locked;
+pll2 pll2
+(
+	.refclk(CLK_50M),
+	.rst(0),
+	.reconfig_to_pll(reconfig_to_pll),
+	.reconfig_from_pll(reconfig_from_pll),
+	.outclk_0(clk_x2),
+	.locked(locked)
+);
+
+wire [63:0] reconfig_to_pll;
+wire [63:0] reconfig_from_pll;
+wire        cfg_waitrequest;
+reg         cfg_write;
+reg   [5:0] cfg_address;
+reg  [31:0] cfg_data;
+
+pll_hdmi_cfg pll_hdmi_cfg
+(
+	.mgmt_clk(CLK_50M),
+	.mgmt_reset(0),
+	.mgmt_waitrequest(cfg_waitrequest),
+	.mgmt_read(0),
+	.mgmt_readdata(),
+	.mgmt_write(cfg_write),
+	.mgmt_address(cfg_address),
+	.mgmt_writedata(cfg_data),
+	.reconfig_to_pll(reconfig_to_pll),
+	.reconfig_from_pll(reconfig_from_pll)
+);
+
+always @(posedge CLK_50M) begin
+	reg pald = 0, pald2 = 0;
+	reg [2:0] state = 0;
+
+	pald  <= pal;
+	pald2 <= pald;
+
+	cfg_write <= 0;
+	if(pald2 != pald) state <= 1;
+
+	if(!cfg_waitrequest) begin
+		if(state) state<=state+1'd1;
+		case(state)
+			1: begin
+					cfg_address <= 0;
+					cfg_data <= 0;
+					cfg_write <= 1;
+				end
+			3: begin
+					cfg_address <= 7;
+					cfg_data <= pald2 ? 32'h15448515 : 32'h29E2B79B;
+					cfg_write <= 1;
+				end
+			5: begin
+					cfg_address <= 2;
+					cfg_data <= 0;
+					cfg_write <= 1;
+				end
+		endcase
+	end
+end
+
+reg clk_en = 0;
+always @(negedge clk_x2) begin
+	reg lockedd;
+
+	lockedd <= locked;
+
+	clk_en <= ~clk_en;
+	if(~lockedd) clk_en <= 0;
+end
 
 
 /////////////////  HPS  ///////////////////////////
@@ -208,7 +282,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 /////////////////  RESET  /////////////////////////
 
 wire sys_reset = RESET | status[0] | buttons[1];
-wire reset = sys_reset | ext_reset | cart_reset;
+wire reset = sys_reset | cart_reset;
 
 /////////////////   RAM   /////////////////////////
 
@@ -216,13 +290,11 @@ reg [15:0] dl_addr;
 reg  [7:0] dl_data;
 reg        dl_wr;
 reg        model;
-reg        ext_reset = 0;
 
 always @(posedge clk_sys) begin
 	reg        old_download = 0;
 	reg  [3:0] state = 0;
 	reg [15:0] addr;
-	reg        st=0;
 
 	if(reset) model <= status[4];
 
@@ -256,26 +328,6 @@ always @(posedge clk_sys) begin
 		13: begin dl_addr <= 16'hae; dl_data <= addr[7:0];  dl_wr <= 1; end
 		15: begin dl_addr <= 16'haf; dl_data <= addr[15:8]; dl_wr <= 1; end
 	endcase
-/*
-	if(sys_reset) {st, ext_reset} <= 2'b11;
-
-	if(ext_reset & ~sys_reset) begin
-		dl_data <= 0;
-		st <= 0;
-
-		if(st) begin
-			dl_addr <= 0;
-			dl_wr <= 1;
-		end
-		else if(&dl_addr) begin
-			ext_reset <= 0;
-		end
-		else if (~dl_wr) begin
-			dl_addr <= dl_addr + 1'd1;
-			dl_wr <= 1;
-		end
-	end
-*/
 end
 
 wire [7:0] ram_dout;
@@ -420,15 +472,17 @@ end
 wire  [7:0] c16_dout;
 wire [15:0] c16_addr;
 wire        c16_rnw;
+wire        pal;
 
 wire  [7:0] c16_din = ram_dout&kernal_dout&basic_dout&fh_dout&fl_dout&cartl_dout&carth_dout;
 
 wire        cs_ram,cs0,cs1,cs_io;
 C16 c16
 (
-	.CLK28   ( clk_c16 ), // NTSC 28.636299, PAL 28.384615. Use NTSC clock as PAL is not much different.
+	.CLK28   ( clk_c16 ), // NTSC 28.636299, PAL 28.384615
 	.RESET   ( reset ),
 	.WAIT    ( 0 ),
+	.PAL     ( pal ),
 
 	.CE_PIX  ( ce_pix ),
 	.HSYNC   ( hs ),
@@ -472,6 +526,8 @@ assign AUDIO_S = 0;
 
 wire hs, vs, hblank, vblank, ce_pix;
 wire [3:0] r,g,b;
+
+assign CLK_VIDEO = clk_x2;
 
 reg ce_vid;
 always @(posedge CLK_VIDEO) begin
