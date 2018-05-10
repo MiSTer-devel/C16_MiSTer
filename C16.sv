@@ -132,7 +132,7 @@ parameter CONF_STR2 = {
 	"-;",
 	"R0,Reset;",
 	"J,Fire;",
-	"V,v1.00.",`BUILD_DATE
+	"V,v1.10.",`BUILD_DATE
 };
 
 /////////////////  CLOCKS  ////////////////////////
@@ -535,6 +535,27 @@ C16 c16
 	.sound   ( audio )
 );
 
+wire c16_iec_atn_o;
+wire c16_iec_data_o;
+wire c16_iec_clk_o;
+
+reg c16_iec_data_i; 
+reg c16_iec_clk_i;
+
+always @(posedge clk_c16) begin
+	reg iec_data_d1,iec_data_d2; 
+	reg iec_clk_d1,iec_clk_d2;
+
+	iec_data_d1<=iec_data_i;
+	iec_clk_d1 <=iec_clk_i;
+	
+	iec_data_d2<=iec_data_d1;
+	iec_clk_d2 <=iec_clk_d1;
+
+	c16_iec_data_i<=iec_data_d2; 
+	c16_iec_clk_i <=iec_clk_d2;
+end
+
 wire [4:0] audio;
 
 assign AUDIO_L = {audio, audio, audio, 1'b0};
@@ -594,14 +615,31 @@ wire c1541_iec_atn_o;
 wire c1541_iec_data_o;
 wire c1541_iec_clk_o;
 
-wire c16_iec_atn_o;
-wire c16_iec_data_o;
-wire c16_iec_clk_o;
+wire iec_atn_i  = c16_iec_atn_o  | c1541_iec_atn_o;
+wire iec_data_i = c16_iec_data_o | c1541_iec_data_o;
+wire iec_clk_i  = c16_iec_clk_o  | c1541_iec_clk_o;
 
-wire c16_iec_atn_i  = c16_iec_atn_o  | c1541_iec_atn_o;
-wire c16_iec_data_i = c16_iec_data_o | c1541_iec_data_o;
-wire c16_iec_clk_i  = c16_iec_clk_o  | c1541_iec_clk_o;
+reg c1541_iec_atn_i;
+reg c1541_iec_data_i; 
+reg c1541_iec_clk_i;
 
+always @(posedge clk_sys) begin
+	reg iec_atn_d1,iec_atn_d2;
+	reg iec_data_d1,iec_data_d2; 
+	reg iec_clk_d1,iec_clk_d2;
+
+	iec_atn_d1 <=iec_atn_i;
+	iec_data_d1<=iec_data_i;
+	iec_clk_d1 <=iec_clk_i;
+	
+	iec_atn_d2 <=iec_atn_d1;
+	iec_data_d2<=iec_data_d1;
+	iec_clk_d2 <=iec_clk_d1;
+
+	c1541_iec_atn_i <=iec_atn_d2;
+	c1541_iec_data_i<=iec_data_d2; 
+	c1541_iec_clk_i <=iec_clk_d2;
+end
 
 reg c1541_reset;
 always @(posedge clk_sys) begin
@@ -623,9 +661,9 @@ c1541_sd c1541_sd
    .disk_change ( img_mounted ),
 	.disk_readonly ( img_readonly ),
 
-	.iec_atn_i  ( c16_iec_atn_i ),
-	.iec_data_i ( c16_iec_data_i ),
-	.iec_clk_i  ( c16_iec_clk_i ),
+	.iec_atn_i  ( c1541_iec_atn_i  ),
+	.iec_data_i ( c1541_iec_data_i ),
+	.iec_clk_i  ( c1541_iec_clk_i  ),
 
 	.iec_atn_o  ( c1541_iec_atn_o  ),
 	.iec_data_o ( c1541_iec_data_o ),

@@ -60,11 +60,11 @@ port
 	c1541rom_data  : in  std_logic_vector(7 downto 0);
 	c1541rom_wr    : in  std_logic
 );
-end c1541_sd;
+end;
 
 architecture struct of c1541_sd is
 
-	component sd_card port
+	component c1541_track port
 	(
 		sd_lba         : out std_logic_vector(31 downto 0);
 		sd_rd          : out std_logic;
@@ -90,7 +90,7 @@ architecture struct of c1541_sd is
 		clk            : in  std_logic;     -- System clock
 		reset          : in  std_logic
 	);
-	end component sd_card;
+	end component;
 
 	signal buff_dout  : std_logic_vector(7 downto 0);
 	signal buff_din   : std_logic_vector(7 downto 0);
@@ -195,7 +195,7 @@ begin
 		ram_ready   => not sd_busy
 	);
 
-	sd : sd_card
+	track_buf : c1541_track
 	port map
 	(
 		sd_lba  => sd_lba,
@@ -241,7 +241,7 @@ begin
 				track_modified <= '0';
 			else
 				if mtr = '1' then
-					if(  (stp_r = "00" and stp = "10")
+					if(   (stp_r = "00" and stp = "10")
 						or (stp_r = "10" and stp = "01")
 						or (stp_r = "01" and stp = "11")
 						or (stp_r = "11" and stp = "00")) then
@@ -252,7 +252,7 @@ begin
 							track_modified <= '0';
 					end if;
 
-					if(  (stp_r = "00" and stp = "11")
+					if(   (stp_r = "00" and stp = "11")
 						or (stp_r = "10" and stp = "00")
 						or (stp_r = "01" and stp = "10")
 						or (stp_r = "11" and stp = "01")) then 

@@ -354,15 +354,10 @@ set_location_assignment PIN_W20 -to SW[3]
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:sys/build_id.tcl"
 
 set_global_assignment -name CDF_FILE jtag.cdf
-set_global_assignment -name QIP_FILE pll2.qip
 set_global_assignment -name QIP_FILE sys/sys.qip
-set_global_assignment -name SYSTEMVERILOG_FILE sd_card.sv
-set_global_assignment -name VHDL_FILE gcr_floppy.vhd
-set_global_assignment -name VHDL_FILE m6522.vhd
-set_global_assignment -name VHDL_FILE cpu65xx_fast.vhd
-set_global_assignment -name VHDL_FILE cpu65xx_e.vhd
-set_global_assignment -name VHDL_FILE c1541_sd.vhd
-set_global_assignment -name VHDL_FILE c1541_logic.vhd
+set_global_assignment -name QIP_FILE pll2.qip
+set_global_assignment -name QIP_FILE c1541/c1541.qip
+set_global_assignment -name QIP_FILE t65/t65.qip
 set_global_assignment -name VHDL_FILE gen_rom.vhd
 set_global_assignment -name VHDL_FILE gen_dpram.vhd
 set_global_assignment -name VERILOG_FILE mos8501.v

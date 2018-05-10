@@ -53,35 +53,32 @@ module mos8501
 wire        we;
 wire [15:0] core_address;
 wire  [7:0] core_data_out;
-reg   [7:0] port_dir=8'b0;
-reg   [7:0] port_data=8'b0;
+reg   [7:0] port_dir=0;
+reg   [7:0] port_data=0;
 
 // 6502 CPU core
-cpu65xx #(.pipelineOpcode("\false"),.pipelineAluMux("\false"),.pipelineAluOut("\false")) cpu_core
+T65 cpu
 (
-	.clk(clk), 
-	.reset(reset), 
-	.enable((rdy | we) & enable), // When RDY is low and cpu would do a read, halt cpu
-	.nmi_n(1'b1), 
-	.irq_n(irq_n), 
-	.di(!port_access ? data_in : address[0] ? (port_dir & port_data) | (~port_dir & port_in) : port_dir), 
-	.do(core_data_out), 
-	.addr(core_address), 
-	.we(we),
-	.so_n(1'b1),
-	.debugOpcode(),
-	.debugPc(),
-	.debugA(),
-	.debugX(),
-	.debugY(),
-	.debugS()
+	.Mode(0),
+	.Res_n(~reset),
+	.Enable(enable),
+	.Clk(clk),
+	.Rdy(rdy),
+	.Abort_n(1),
+	.IRQ_n(irq_n),
+	.NMI_n(1),
+	.SO_n(1),
+	.R_W_n(we),
+	.A(core_address),
+	.DI(~we ? core_data_out : ~port_access ? data_in : address[0] ? (port_dir & port_data) | (~port_dir & port_in) : port_dir), 
+	.DO(core_data_out)
 );
 
 wire   port_access = ~|core_address[15:1];
 
 assign address     = aec ? core_address : 16'hffff;  // address tri state emulated for easy bus signal combining
 assign port_out    = port_data;
-assign rw          = ~aec|~we|port_access;
+assign rw          = ~aec|we|port_access;
 assign data_out    = rw ? 8'hff : core_data_out; // when mux is low data out register is allowed to outside
 
 // IO port part of cpu
@@ -94,7 +91,7 @@ always @(posedge clk) begin	//writing port registers
 		port_data<=0;
 	end
 	else if (enable) begin
-		if(port_access & we) begin
+		if(port_access & ~we) begin
 			if(core_address[0]==0) port_dir<=core_data_out;
 			else port_data<=core_data_out;
 		end

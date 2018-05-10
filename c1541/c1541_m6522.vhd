@@ -50,7 +50,7 @@
  	  use ieee.std_logic_1164.all ;
  	  use ieee.numeric_std.all;
  	
- 	entity M6522 is
+ 	entity C1541_M6522 is
  	  port (
  	
  	    I_RS              : in    std_logic_vector(3 downto 0);
@@ -93,7 +93,7 @@
  	    );
  	end;
  	
- 	architecture RTL of M6522 is
+ 	architecture RTL of C1541_M6522 is
  	
  	  signal phase             : std_logic_vector(1 downto 0):="00";
  	  signal p2_h_t1           : std_logic;
