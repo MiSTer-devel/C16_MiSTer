@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------
--- Commodore 1541 to SD card (read only) by Dar (darfpga@aol.fr) 02-April-2015
+-- Commodore 1541 to SD card by Dar (darfpga@aol.fr) 02-April-2015
 -- http://darfpga.blogspot.fr
 --
 -- c1541_sd reads D64 data from raw SD card, produces GCR data, feeds c1541_logic

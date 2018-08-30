@@ -2,9 +2,6 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.numeric_std.all;
 
---use work.platform_pkg.all;
---use work.project_pkg.all;
-
 --
 -- Model 1541B
 --
@@ -116,23 +113,18 @@ begin
 		if rising_edge(clk_32M) then
 			-- generate 1MHz pulse
 			clk_1M_pulse <= '0';
-			--if count(4 downto 0) = "00111" then			
 			if count(4 downto 0) = "01000" then
 				clk_1M_pulse <= '1';
 			end if;
-	--      if count = "000100000" then -- DAR divide by 33 (otherwise real c64 miss EOI acknowledge)
-			if count = "000011111" then -- TH: divide by 32 
+			if count = "000011110" then -- Sorgelig: divide by 31 (C16 works better) 
 				count := (others => '0');   -- DAR	
 			else                        -- DAR
 				count := std_logic_vector(unsigned(count) + 1);
 			end if;                     -- DAR
 		end if;
+
 		p2_h <= not hcnt(1);
 
-    -- for original m6522 design that requires a real clock
---    clk_4M_en <= not count(2);
-
-    -- for version 002 with clock enable
 		if count(2 downto 0) = "111" then
 			clk_4M_en <= '1';
 		else
@@ -313,8 +305,8 @@ begin
 
 		RESET_L         => reset_n,
 		CLK             => clk_32M,
-		I_P2_H          => p2_h,          -- high for phase 2 clock   ____----__
-		ENA_4           => clk_4M_en      -- 4x system clock (4MHZ)   _-_-_-_-_-
+		I_P2_H          => p2_h,
+		ENA_4           => clk_4M_en
 	);
 
 	uc3_via6522_inst : entity work.C1541_M6522
@@ -356,8 +348,8 @@ begin
 
 		RESET_L         => reset_n,
 		CLK             => clk_32M,
-		I_P2_H          => p2_h,          -- high for phase 2 clock   ____----__
-		ENA_4           => clk_4M_en      -- 4x system clock (4MHZ)   _-_-_-_-_-
+		I_P2_H          => p2_h,
+		ENA_4           => clk_4M_en
 	);
 
 end SYN;
