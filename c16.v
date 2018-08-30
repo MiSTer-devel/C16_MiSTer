@@ -65,7 +65,6 @@ module C16
 	output        IEC_CLKOUT,
 	input         IEC_CLKIN,
 	output        IEC_ATNOUT,
-	//input       IEC_ATNIN,
 	output        IEC_RESET,
 
 	output  [4:0] sound,
@@ -204,7 +203,6 @@ assign port_in[7]=IEC_DATAIN;
 assign IEC_CLKOUT=port_out[1];
 assign port_in[6]=IEC_CLKIN;
 assign IEC_ATNOUT=port_out[2];
-//assign ATN=IEC_ATNIN;
 assign IEC_RESET=sreset;
 
 endmodule
