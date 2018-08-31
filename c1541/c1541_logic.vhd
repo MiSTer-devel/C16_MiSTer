@@ -94,8 +94,36 @@ architecture SYN of c1541_logic is
 
 	type t_byte_array is array(2047 downto 0) of std_logic_vector(7 downto 0);
 	signal ram            : t_byte_array;
-  
+
+	signal sb_data        : std_logic;
+	signal sb_clk         : std_logic;
+
+	signal iec_atn_d1     : std_logic;
+	signal iec_data_d1    : std_logic;
+	signal iec_clk_d1     : std_logic;
+	signal iec_atn_d2     : std_logic;
+	signal iec_data_d2    : std_logic;
+	signal iec_clk_d2     : std_logic;
+	signal iec_atn        : std_logic;
+	signal iec_data       : std_logic;
+	signal iec_clk        : std_logic;
+
 begin
+	process (clk_32M) begin
+		if rising_edge(clk_32M) then
+			iec_atn_d1 <=sb_atn_in;
+			iec_atn_d2 <=iec_atn_d1;
+			iec_atn    <=iec_atn_d2;
+
+			iec_data_d1<=sb_data_in;
+			iec_data_d2<=iec_data_d1;
+			iec_data   <=iec_data_d2;
+
+			iec_clk_d1 <=sb_clk_in;
+			iec_clk_d2 <=iec_clk_d1;
+			iec_clk    <=iec_clk_d2;
+		end if;
+	end process;
 
 	process (clk_32M, reset)
 		variable count  : std_logic_vector(4 downto 0) := (others => '0');
@@ -120,14 +148,18 @@ begin
 	--
 	-- hook up UC1 ports
 	--
+	sb_data <= (uc1_pb_o(1) and not uc1_pb_oe_n(1)) or atn;
+	sb_clk  <= uc1_pb_o(3) and not uc1_pb_oe_n(3);
+	atna    <= uc1_pb_o(4);
+
 	uc1_pa_i(0) <= tr00_sense_n;
-	uc1_pb_i(0) <= not sb_data_in or (uc1_pb_o(1) and not uc1_pb_oe_n(1)) or atn;
-	sb_data_oe  <= (uc1_pb_o(1) and not uc1_pb_oe_n(1)) or atn;
-	uc1_pb_i(2) <= not sb_clk_in or (uc1_pb_o(3) and not uc1_pb_oe_n(3));
-	sb_clk_oe   <= uc1_pb_o(3) and not uc1_pb_oe_n(3);
-	atna        <= uc1_pb_o(4);
+	uc1_pb_i(0) <= not iec_data or sb_data;
+	uc1_pb_i(2) <= not iec_clk or sb_clk;
+	uc1_pb_i(7) <= not iec_atn;
 	uc1_pb_i(6 downto 5) <= ds;
-	uc1_pb_i(7) <= not sb_atn_in;
+
+	sb_data_oe  <= sb_data;
+	sb_clk_oe   <= sb_clk;
 
 	--
 	-- hook up UC3 ports

@@ -27,12 +27,12 @@ entity c1541_sd is
 port
 (
 	clk32          : in  std_logic;
-	reset          : in  std_logic;
 
 	disk_change    : in  std_logic;
 	disk_readonly  : in  std_logic;
 	drive_num      : in  std_logic_vector(1 downto 0) := "00";
 
+	iec_reset_i    : in  std_logic;
 	iec_atn_i      : in  std_logic;
 	iec_data_i     : in  std_logic;
 	iec_clk_i      : in  std_logic;
@@ -114,10 +114,19 @@ architecture struct of c1541_sd is
 	signal ch_timeout     : integer := 0;
 	signal prev_change    : std_logic := '0';
 	signal ch_state       : std_logic := '0';
+	
+	signal reset, reset_r : std_logic;
 begin
 	
 	tr00_sense_n <= '1' when (track > "000000") else '0';
 	
+	process(clk32) begin
+		if rising_edge(clk32) then
+			reset_r <= iec_reset_i;
+			reset   <= reset_r;
+		end if;
+	end process;
+
 	process(clk32) begin
 		if rising_edge(clk32) then
 			prev_change <= disk_change;

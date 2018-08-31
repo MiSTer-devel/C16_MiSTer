@@ -196,12 +196,27 @@ assign c16_data=cpu_data&ted_data&DIN&keyport_data;		// C16 data bus
 assign ADDR=c16_addr;
 assign DOUT=cpu_data;
 
+reg iec_data;
+reg iec_clk;
+always @(posedge CLK28) begin
+	reg iec_data_d1,iec_data_d2; 
+	reg iec_clk_d1,iec_clk_d2;
+
+	iec_data_d1<=IEC_DATAIN;
+	iec_data_d2<=iec_data_d1;
+	iec_data   <=iec_data_d2; 
+
+	iec_clk_d1 <=IEC_CLKIN;
+	iec_clk_d2 <=iec_clk_d1;
+	iec_clk    <=iec_clk_d2;
+end
+
 // connect IEC bus
 assign port_in[5:0]=0;
 assign IEC_DATAOUT=port_out[0];
-assign port_in[7]=IEC_DATAIN;
+assign port_in[7]=~(iec_data|port_out[0]);
 assign IEC_CLKOUT=port_out[1];
-assign port_in[6]=IEC_CLKIN;
+assign port_in[6]=~(iec_clk|port_out[1]);
 assign IEC_ATNOUT=port_out[2];
 assign IEC_RESET=sreset;
 

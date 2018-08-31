@@ -525,36 +525,20 @@ C16 c16
 
 	.ps2_key ( ps2_key ),
 
-	.IEC_DATAIN  ( ~(c16_iec_data_i | c16_iec_data_o )),
-	.IEC_CLKIN   ( ~(c16_iec_clk_i  | c16_iec_clk_o  )),
-	.IEC_ATNOUT  ( c16_iec_atn_o ),
-	.IEC_DATAOUT ( c16_iec_data_o ),
-	.IEC_CLKOUT  ( c16_iec_clk_o ),
-	.IEC_RESET   ( iec_reset ),
+	.sound   ( audio ),
 
-	.sound   ( audio )
+	.IEC_DATAIN  ( c1541_iec_data_o ),
+	.IEC_CLKIN   ( c1541_iec_clk_o  ),
+	.IEC_ATNOUT  ( c16_iec_atn_o    ),
+	.IEC_DATAOUT ( c16_iec_data_o   ),
+	.IEC_CLKOUT  ( c16_iec_clk_o    ),
+	.IEC_RESET   ( c16_iec_reset_o  )
 );
 
 wire c16_iec_atn_o;
 wire c16_iec_data_o;
 wire c16_iec_clk_o;
-
-reg c16_iec_data_i; 
-reg c16_iec_clk_i;
-
-always @(posedge clk_c16) begin
-	reg iec_data_d1,iec_data_d2; 
-	reg iec_clk_d1,iec_clk_d2;
-
-	iec_data_d1<=c1541_iec_data_o;
-	iec_clk_d1 <=c1541_iec_clk_o;
-	
-	iec_data_d2<=iec_data_d1;
-	iec_clk_d2 <=iec_clk_d1;
-
-	c16_iec_data_i<=iec_data_d2; 
-	c16_iec_clk_i <=iec_clk_d2;
-end
+wire c16_iec_reset_o;
 
 wire [4:0] audio;
 
@@ -609,45 +593,13 @@ video_mixer #(456, 1) mixer
 ///////////////////////////////////////////////////
 
 wire led_disk;
-wire iec_reset;
 
 wire c1541_iec_data_o;
 wire c1541_iec_clk_o;
 
-reg c1541_iec_atn_i;
-reg c1541_iec_data_i; 
-reg c1541_iec_clk_i;
-
-always @(posedge clk_sys) begin
-	reg iec_atn_d1,iec_atn_d2;
-	reg iec_data_d1,iec_data_d2; 
-	reg iec_clk_d1,iec_clk_d2;
-
-	iec_atn_d1 <=c16_iec_atn_o;
-	iec_data_d1<=c16_iec_data_o;
-	iec_clk_d1 <=c16_iec_clk_o;
-	
-	iec_atn_d2 <=iec_atn_d1;
-	iec_data_d2<=iec_data_d1;
-	iec_clk_d2 <=iec_clk_d1;
-
-	c1541_iec_atn_i <=iec_atn_d2;
-	c1541_iec_data_i<=iec_data_d2;
-	c1541_iec_clk_i <=iec_clk_d2;
-end
-
-
-reg c1541_reset;
-always @(posedge clk_sys) begin
-	reg rst;
-	rst <= iec_reset;
-	c1541_reset <= rst;
-end
-
 c1541_sd c1541_sd
 (
 	.clk32 (clk_sys),
-	.reset (c1541_reset),
 
 	.c1541rom_clk(clk_sys),
 	.c1541rom_addr(ioctl_addr[13:0]),
@@ -658,12 +610,6 @@ c1541_sd c1541_sd
 	.disk_readonly ( img_readonly ),
    .led (led_disk),
 
-	.iec_atn_i  ( c1541_iec_atn_i  ),
-	.iec_data_i ( c1541_iec_data_i | c1541_iec_data_o ),
-	.iec_clk_i  ( c1541_iec_clk_i  | c1541_iec_clk_o  ),
-	.iec_data_o ( c1541_iec_data_o ),
-	.iec_clk_o  ( c1541_iec_clk_o  ),
-
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
@@ -671,7 +617,14 @@ c1541_sd c1541_sd
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
-	.sd_buff_wr(sd_buff_wr)
+	.sd_buff_wr(sd_buff_wr),
+
+	.iec_reset_i( c16_iec_reset_o  ),
+	.iec_atn_i  ( c16_iec_atn_o    ),
+	.iec_data_i ( c16_iec_data_o   ),
+	.iec_clk_i  ( c16_iec_clk_o    ),
+	.iec_data_o ( c1541_iec_data_o ),
+	.iec_clk_o  ( c1541_iec_clk_o  )
 );
 
 endmodule
