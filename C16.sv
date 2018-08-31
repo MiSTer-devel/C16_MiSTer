@@ -1,5 +1,5 @@
 //============================================================================
-//  C16
+//  C16,Plus/4
 //
 //  Port to MiSTer
 //  Copyright (C) 2017,2018 Sorgelig
@@ -132,7 +132,7 @@ parameter CONF_STR2 = {
 	"-;",
 	"R0,Reset;",
 	"J,Fire;",
-	"V,v1.10.",`BUILD_DATE
+	"V,v1.20.",`BUILD_DATE
 };
 
 /////////////////  CLOCKS  ////////////////////////
@@ -611,7 +611,6 @@ video_mixer #(456, 1) mixer
 wire led_disk;
 wire iec_reset;
 
-wire c1541_iec_atn_o;
 wire c1541_iec_data_o;
 wire c1541_iec_clk_o;
 
@@ -659,10 +658,9 @@ c1541_sd c1541_sd
 	.disk_readonly ( img_readonly ),
    .led (led_disk),
 
-	.iec_atn_i  ( c1541_iec_atn_i  | c1541_iec_atn_o  ),
+	.iec_atn_i  ( c1541_iec_atn_i  ),
 	.iec_data_i ( c1541_iec_data_i | c1541_iec_data_o ),
 	.iec_clk_i  ( c1541_iec_clk_i  | c1541_iec_clk_o  ),
-	.iec_atn_o  ( c1541_iec_atn_o  ),
 	.iec_data_o ( c1541_iec_data_o ),
 	.iec_clk_o  ( c1541_iec_clk_o  ),
 
