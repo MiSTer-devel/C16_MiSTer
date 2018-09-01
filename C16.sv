@@ -329,8 +329,8 @@ always @(posedge clk_sys) begin
 		 7: begin dl_addr <= 16'h30; dl_data <= addr[15:8]; dl_wr <= 1; end
 		 9: begin dl_addr <= 16'h31; dl_data <= addr[7:0];  dl_wr <= 1; end
 		11: begin dl_addr <= 16'h32; dl_data <= addr[15:8]; dl_wr <= 1; end
-		13: begin dl_addr <= 16'hae; dl_data <= addr[7:0];  dl_wr <= 1; end
-		15: begin dl_addr <= 16'haf; dl_data <= addr[15:8]; dl_wr <= 1; end
+		13: begin dl_addr <= 16'h9d; dl_data <= addr[7:0];  dl_wr <= 1; end
+		15: begin dl_addr <= 16'h9e; dl_data <= addr[15:8]; dl_wr <= 1; end
 	endcase
 end
 
