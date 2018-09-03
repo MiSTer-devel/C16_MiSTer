@@ -46,7 +46,7 @@ architecture SYN of c1541_logic is
 	signal p2_h_f         : std_logic;
 
 	-- cpu signals  
-	signal cpu_a          : std_logic_vector(16 downto 0);
+	signal cpu_a          : std_logic_vector(23 downto 0);
 	signal cpu_di         : std_logic_vector(7 downto 0);
 	signal cpu_do         : std_logic_vector(7 downto 0);
 	signal cpu_rw         : std_logic;
@@ -192,17 +192,21 @@ begin
 	-- internal connections
 	atn <= atna xor (not sb_atn_in);
 
-	cpu: work.proc_core
+	cpu: work.T65
 	port map(
-		reset        => reset,
-		clock_en     => p2_h_f,
-		clock        => clk_32M,
-		so_n         => cpu_so_n,
-		irq_n        => cpu_irq_n,
-		read_write_n => cpu_rw,
-		addr_out     => cpu_a,
-		data_in      => cpu_di,
-		data_out     => cpu_do
+		Mode    => "00",
+		Res_n   => not reset,
+		Enable  => p2_h_f,
+		Clk     => clk_32M,
+		Rdy     => '1',
+		Abort_n => '1',
+		IRQ_n   => cpu_irq_n,
+		NMI_n   => '1',
+		SO_n    => cpu_so_n,
+		R_W_n   => cpu_rw,
+		A       => cpu_a,
+		DI      => cpu_di,
+		DO      => cpu_do
 	);
 
 	rom_inst: entity work.C1541_rom
