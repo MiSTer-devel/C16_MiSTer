@@ -63,6 +63,8 @@ signal gcr_byte    : std_logic_vector(7 downto 0);
 signal mode_r1     : std_logic;
 signal mode_r2     : std_logic;
 
+signal old_track   : std_logic_vector(5 downto 0);
+
 type gcr_array is array(0 to 15) of std_logic_vector(4 downto 0);
 
 signal gcr_lut : gcr_array := 
@@ -193,7 +195,11 @@ begin
 	if rising_edge(clk32) then
 
 		ram_we <= '0';
-		if bit_clk_en = '1' then
+		old_track <= track;
+ 
+		if old_track /= track then
+			sector_dbl <= (others => '0'); --reset sector number on track change
+		elsif bit_clk_en = '1' then 		
 			mode_r2 <= mode;
 			if mode = '1' then autorise_write <= '0'; end if;
 			
@@ -307,7 +313,6 @@ begin
 						ram_we <= '1';
 					end if;	
 				end if;
-					
 			end if;
 		end if;
 	end if;
