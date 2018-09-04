@@ -176,7 +176,7 @@ begin
 		act           => act     -- activity LED
 	);
 
-	floppy : entity work.gcr_floppy
+	floppy : entity work.c1541_gcr
 	port map
 	(
 		clk32     => clk32,

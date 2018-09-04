@@ -16,7 +16,7 @@ use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
-entity gcr_floppy is
+entity c1541_gcr is
 port(
 	clk32  : in  std_logic;
 	dout   : out std_logic_vector(7 downto 0);   -- data from ram to 1541 logic
@@ -35,9 +35,9 @@ port(
 	ram_we      : out std_logic;
 	ram_ready   : in  std_logic
 );
-end gcr_floppy;
+end c1541_gcr;
 
-architecture struct of gcr_floppy is
+architecture struct of c1541_gcr is
 
 signal bit_clk_en  : std_logic;
 signal sync_cnt    : std_logic_vector(5 downto 0) := (others => '0');
