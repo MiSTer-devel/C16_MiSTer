@@ -121,6 +121,7 @@ parameter CONF_STR1 = {
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O23,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
+	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
 	"-;",
 	"O5,Joysticks swap,No,Yes;",
 	"-;",
@@ -129,7 +130,6 @@ parameter CONF_STR1 = {
 
 parameter CONF_STR2 = {
 	"6,Kernal,from boot.rom,Original;",
-	"-;",
 	"R0,Reset;",
 	"J,Fire;",
 	"V,v1.20.",`BUILD_DATE
@@ -510,6 +510,7 @@ C16 c16
 	.RED     ( r ),
 	.GREEN   ( g ),
 	.BLUE    ( b ),
+	.tvmode  ( status[8:7] ),
 
 	.RnW     ( c16_rnw ),
 	.ADDR    ( c16_addr ),

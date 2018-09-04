@@ -45,6 +45,7 @@ module C16
 	output  [3:0] RED,
 	output  [3:0] GREEN,
 	output  [3:0] BLUE,
+	input   [1:0] tvmode,
 
 	output        RnW,
 	output [15:0] ADDR,
@@ -140,6 +141,7 @@ ted mos8360
 	.k(kbus),
 	.snd(sound),
 	.pal(PAL),
+	.tvmode(tvmode),
 	.cpuenable(cpuenable)
 );
 

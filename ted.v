@@ -58,6 +58,7 @@ module ted
 	output  [4:0] snd,
 	output        pal,
 	input   [7:0] k,
+	input   [1:0] tvmode,
 	output        cpuenable			// this TED signals is needed only for FPGA bustiming and FPGA internal cpu. If external CPU is used, it is not needed.
 );
 
@@ -1163,7 +1164,7 @@ always @(posedge clk)						// latch pixelcolor and multiplex it with blank signa
 //---------------------------------------------------------------------------
 	
 // PAL/NTSC screen constants 
-assign pal = !palreg;
+assign pal = !tvmode ? !palreg : tvmode[0];
 
 assign EOS = pal?9'd311:9'd261;					// End of Screen scanline
 assign VS_START = pal?9'd254:9'd229;			// Vertical sync start
@@ -1479,7 +1480,7 @@ always @(posedge clk)
 				CONTROL2:	// $FF07
 							begin
 							dataout_reg[7]<=reverse;
-							dataout_reg[6]<=palreg;
+							dataout_reg[6]<=~pal;
 							dataout_reg[5]<=stop;
 							dataout_reg[4]<=mcm;
 							dataout_reg[3]<=csel;
