@@ -48,6 +48,8 @@ module emu
 	output        VGA_HS,
 	output        VGA_VS,
 	output        VGA_DE,    // = ~(VBlank | HBlank)
+	output        VGA_F1,
+	output [1:0]  VGA_SL,
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
 
@@ -94,9 +96,28 @@ module emu
 	output        SDRAM_nCS,
 	output        SDRAM_nCAS,
 	output        SDRAM_nRAS,
-	output        SDRAM_nWE
+	output        SDRAM_nWE,
+
+	input         UART_CTS,
+	output        UART_RTS,
+	input         UART_RXD,
+	output        UART_TXD,
+	output        UART_DTR,
+	input         UART_DSR,
+
+	// Open-drain User port.
+	// 0 - D+/RX
+	// 1 - D-/TX
+	// 2..5 - USR1..USR4
+	// Set USER_OUT to 1 to read from USER_IN.
+	input   [5:0] USER_IN,
+	output  [5:0] USER_OUT,
+
+	input         OSD_STATUS
 );
 
+assign USER_OUT = '1;
+assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
@@ -108,8 +129,6 @@ assign LED_POWER = 0;
 assign VIDEO_ARX = status[1] ? 8'd16 : 8'd4;
 assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3; 
 
-wire [1:0] scale = status[3:2];
-
 `include "build_id.v" 
 parameter CONF_STR1 = {
 	"C16;;",
@@ -120,19 +139,19 @@ parameter CONF_STR1 = {
 	"S,D64;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
-	"O23,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
+	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
 	"-;",
 	"O5,Joysticks swap,No,Yes;",
 	"-;",
-	"O4,Model,C16,Plus/4;"
+	"O9,Model,C16,Plus/4;"
 };
 
 parameter CONF_STR2 = {
 	"6,Kernal,from boot.rom,Original;",
 	"R0,Reset;",
 	"J,Fire;",
-	"V,v1.20.",`BUILD_DATE
+	"V,v",`BUILD_DATE
 };
 
 /////////////////  CLOCKS  ////////////////////////
@@ -300,7 +319,7 @@ always @(posedge clk_sys) begin
 	reg  [3:0] state = 0;
 	reg [15:0] addr;
 
-	if(reset) model <= status[4];
+	if(reset) model <= status[9];
 
 	dl_wr <= 0;
 	old_download <= ioctl_download;
@@ -551,6 +570,12 @@ assign AUDIO_S = 0;
 wire hs, vs, hblank, vblank, ce_pix;
 wire [3:0] r,g,b;
 
+wire [2:0] scale = status[4:2];
+wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
+
+assign VGA_F1 = 0;
+assign VGA_SL = sl[1:0];
+
 assign CLK_VIDEO = clk_x2;
 
 reg ce_vid;
@@ -569,7 +594,7 @@ video_mixer #(456, 1) mixer
 	.ce_pix_out(CE_PIXEL),
 
 	.hq2x(scale == 1),
-	.scanlines({scale==3, scale==2}),
+	.scanlines(0),
 	.scandoubler(scale || forced_scandoubler),
 
 	.R(r),
