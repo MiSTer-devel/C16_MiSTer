@@ -142,6 +142,8 @@ parameter CONF_STR1 = {
 	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
 	"-;",
+	"ODE,SID card,Disabled,6581,8580;",
+	"-;",
 	"O5,Joysticks swap,No,Yes;",
 	"-;",
 	"O9,Model,C16,Plus/4;"
@@ -545,7 +547,8 @@ C16 c16
 
 	.ps2_key ( ps2_key ),
 
-	.sound   ( audio ),
+	.sid_type( status[14:13] ),
+	.sound   ( AUDIO_L ),
 
 	.IEC_DATAIN  ( c1541_iec_data_o ),
 	.IEC_CLKIN   ( c1541_iec_clk_o  ),
@@ -560,12 +563,9 @@ wire c16_iec_data_o;
 wire c16_iec_clk_o;
 wire c16_iec_reset_o;
 
-wire [4:0] audio;
-
-assign AUDIO_L = {audio, audio, audio, 1'b0};
 assign AUDIO_R = AUDIO_L;
 assign AUDIO_MIX = 0;
-assign AUDIO_S = 0;
+assign AUDIO_S = 1;
 
 wire hs, vs, hblank, vblank, ce_pix;
 wire [3:0] r,g,b;

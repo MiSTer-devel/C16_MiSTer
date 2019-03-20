@@ -68,7 +68,8 @@ module C16
 	output        IEC_ATNOUT,
 	output        IEC_RESET,
 
-	output  [4:0] sound,
+	output [15:0] sound,
+	input   [1:0] sid_type,
 
 	output        PAL
 );
@@ -114,6 +115,68 @@ mos8501 cpu
 	.aec(aec)
 );
 
+// -----------------------------------------------------------------------
+// internal SID Card enhancement
+// -----------------------------------------------------------------------
+
+// this process divides 28 MHz to ~986KHz (for the SID)
+reg ce_sid;
+always @(posedge CLK28)	begin
+	reg [5:0] div = 0;
+	
+	div <= div  + 1'd1;
+	if(div == 28) div <= 0;
+	ce_sid <= !div;
+end
+
+// valid adresses for SID: FD40-FD5F and FE80-FE9F
+wire cs_sid = (c16_addr[15:5] == 'b1111_1101_010) || (c16_addr[15:5] == 'b1111_1110_100);
+
+wire  [7:0] sid8580_data;
+wire [17:0] sid8580_audio;
+sid8580 sid8580
+(
+	.reset(sreset),
+	.clk(CLK28),
+	.ce_1m(ce_sid),
+
+	.we(~RnW & cs_sid),
+	.addr(c16_addr[4:0]),
+	.data_in(c16_data),
+	.data_out(sid8580_data),
+
+	.extfilter_en(1),
+	.audio_data(sid8580_audio)
+);
+
+wire  [7:0] sid6581_data;
+wire [17:0] sid6581_audio;
+sid_top #(592) sid6581
+(
+	 .reset(sreset),
+	 .clock(CLK28),
+	 .start_iter(ce_sid),
+
+	 .wren(~RnW & cs_sid),
+	 .addr(c16_addr[4:0]),
+	 .wdata(c16_data),
+	 .rdata(sid6581_data),
+
+	 .extfilter_en(1),
+	 .sample_left(sid6581_audio)
+);
+
+wire [16:0] sid_audio = sid_type[0] ? {sid6581_audio[17], sid6581_audio[17:2]} : sid_type[1] ? {sid8580_audio[17], sid8580_audio[17:2]} : 17'd0;
+wire  [7:0] sid_data  = (sid_type[0] & RnW & cs_sid) ? sid6581_data : (sid_type[1] & RnW & cs_sid) ? sid8580_data : 8'hFF;
+
+// -----------------------------------------------------------------------
+
+wire [16:0] mix_audio = sid_audio + {ted_audio,ted_audio,ted_audio};
+assign sound = ($signed(mix_audio) > $signed(17'd32767)) ? 16'd32767 : ($signed(mix_audio) < $signed(-17'd32768)) ? $signed(-16'd32768) : mix_audio[15:0];
+
+// -----------------------------------------------------------------------
+
+wire [4:0] ted_audio;
 // TED 8360 instance	
 ted mos8360
 (
@@ -139,7 +202,7 @@ ted mos8360
 	.cs_io(CS_IO),
 	.aec(aec),
 	.k(kbus),
-	.snd(sound),
+	.snd(ted_audio),
 	.pal(PAL),
 	.tvmode(tvmode),
 	.cpuenable(cpuenable)
@@ -192,8 +255,8 @@ always @(posedge CLK28)	begin	// reset tries to emulate the length of a real res
 end
 
 // assign VSYNC=1'b1; // set scart mode to RGB for TV
-assign c16_addr=cpu_addr&ted_addr;									// C16 address bus
-assign c16_data=cpu_data&ted_data&DIN&keyport_data;		// C16 data bus
+assign c16_addr=cpu_addr&ted_addr;									 // C16 address bus
+assign c16_data=cpu_data&ted_data&DIN&keyport_data;//&sid_data; // C16 data bus
 
 assign ADDR=c16_addr;
 assign DOUT=cpu_data;

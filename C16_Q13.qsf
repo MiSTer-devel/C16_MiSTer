@@ -362,6 +362,8 @@ set_global_assignment -name QIP_FILE sys/sys_q13.qip
 set_global_assignment -name QIP_FILE pll2_q13.qip
 set_global_assignment -name QIP_FILE c1541/c1541.qip
 set_global_assignment -name QIP_FILE t65/t65.qip
+set_global_assignment -name QIP_FILE sid8580/sid.qip
+set_global_assignment -name QIP_FILE sid6581/sid.qip
 set_global_assignment -name VHDL_FILE gen_rom.vhd
 set_global_assignment -name VHDL_FILE gen_dpram.vhd
 set_global_assignment -name VERILOG_FILE mos8501.v
