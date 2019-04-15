@@ -56,6 +56,10 @@ module C16
 	output        CS1,
 	output        CS_IO,
 
+	output        cass_mtr,
+	input         cass_in,
+	input         cass_aud,
+
 	input   [4:0] JOY0,
 	input   [4:0] JOY1,
 
@@ -171,7 +175,7 @@ wire  [7:0] sid_data  = (sid_type[0] & RnW & cs_sid) ? sid6581_data : (sid_type[
 
 // -----------------------------------------------------------------------
 
-wire [16:0] mix_audio = sid_audio + {ted_audio,ted_audio,ted_audio};
+wire [16:0] mix_audio = sid_audio + {ted_audio,ted_audio,ted_audio} + {cass_aud, 10'd0};
 assign sound = ($signed(mix_audio) > $signed(17'd32767)) ? 16'd32767 : ($signed(mix_audio) < $signed(-17'd32768)) ? $signed(-16'd32768) : mix_audio[15:0];
 
 // -----------------------------------------------------------------------
@@ -277,12 +281,15 @@ always @(posedge CLK28) begin
 end
 
 // connect IEC bus
-assign port_in[5:0]=0;
+assign {port_in[5],port_in[3:0]}=0;
 assign IEC_DATAOUT=port_out[0];
 assign port_in[7]=~(iec_data|port_out[0]);
 assign IEC_CLKOUT=port_out[1];
 assign port_in[6]=~(iec_clk|port_out[1]);
 assign IEC_ATNOUT=port_out[2];
 assign IEC_RESET=sreset;
+
+assign cass_mtr = port_out[3];
+assign port_in[4]= cass_in;
 
 endmodule
