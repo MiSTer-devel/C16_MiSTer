@@ -104,8 +104,7 @@ begin
 				ram_write 	<= 1;
 				cached      <= ((ram_address[27:3] == addr[27:3]) ? cached : 8'h00) | (8'd1<<addr[2:0]);
 			end
-
-			if(~old_rd && rd) begin
+			else if(~old_rd && rd) begin
 				if((ram_address[27:3] == addr[27:3]) && (cached & (8'd1<<addr[2:0]))) begin
 					ram_q <= ram_cache[{addr[2:0], 3'b000} +:8];
 				end

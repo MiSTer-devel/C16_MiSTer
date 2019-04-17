@@ -132,13 +132,14 @@ assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3;
 parameter CONF_STR1 = {
 	"C16;;",
 	"-;",
-	"F,PRG;",
+	"F,PRG,Load Program;",
 	"F,BIN,Load Cart(Plus/4);",
 	"-;",
-	"S,D64;",
+	"S,D64,Mount Disk;",
 	"-;",
-	"F,TAP,Load Tape;",
-	"RG,Tape Play/Stop;",
+	"F,TAP,Tape Load;",
+	"RG,Tape Play/Pause;",
+	"RI,Tape Unload;",
 	"OH,Tape Sound,Off,On;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
@@ -539,7 +540,7 @@ C16 c16
 
 	.cass_mtr( cass_motor ),
 	.cass_in ( cass_do ),
-	.cass_aud( cass_do & status[17] & tap_play),
+	.cass_aud( cass_do & status[17] & tap_play & ~cass_motor),
 
 	.JOY0    ( status[5] ? joyb[4:0] : joya[4:0] ),
 	.JOY1    ( status[5] ? joya[4:0] : joyb[4:0] ),
@@ -691,11 +692,11 @@ always @(posedge clk_sys) begin
 	if(~old_reset && reset) ioctl_wait <= 0;
 
 	tap_wr <= 0;
-	if(ioctl_wr && tap_load) begin
+	if(ioctl_wr & tap_load) begin
 		ioctl_wait <= 1;
 		tap_wr <= 1;
 	end
-	else if(~tap_wr & ioctl_wait && tap_data_ready) begin
+	else if(~tap_wr & ioctl_wait & tap_data_ready) begin
 		ioctl_wait <= 0;
 	end
 end
@@ -704,65 +705,54 @@ end
 wire [7:0] cass_dout = {5'b11111, cs_io | (c16_addr[8:4] != 'h11) | ~tap_play, 2'b11};
 
 reg        tap_rd;
+wire       tap_finish;
 reg [24:0] tap_play_addr;
 reg [24:0] tap_last_addr;
 wire [7:0] tap_data;
 wire       tap_data_ready;
-reg        tap_reset;
+wire       tap_reset = reset | (ioctl_download & tap_load) | status[18];
 reg        tap_wrreq;
 wire       tap_wrfull;
-wire       tap_empty;
-reg        tap_loaded;
+wire       tap_loaded = (tap_play_addr < tap_last_addr);
 reg        tap_play;
 wire       tap_play_btn = status[16];
 wire       tap_load = (ioctl_index == 4);
 
 always @(posedge clk_sys) begin
-	reg tap_play_btnD;
+	reg tap_play_btnD, tap_finishD;
 	reg tap_cycle = 0;
-	reg ioctl_downloadD;  
 
 	tap_play_btnD <= tap_play_btn;
-	tap_loaded <= (tap_play_addr < tap_last_addr);
-	ioctl_downloadD <= ioctl_download;
+	tap_finishD <= tap_finish;
 
-	if(reset) begin
+	if(tap_reset) begin
 		tap_play_addr <= 0;
-		tap_last_addr <= 0;
-		tap_play <= 0;
-		tap_reset <= 1;
+		tap_last_addr <= ioctl_download ? ioctl_addr+1'd1 : 25'd0;
+		tap_play <= ioctl_download;
 		tap_rd <= 0;
 		tap_cycle <= 0;
 	end
 	else begin
-		if (~ioctl_download & ioctl_downloadD & tap_load) tap_play <= 1;
-		if (tap_loaded & ~tap_play_btnD & tap_play_btn) tap_play <= ~tap_play;
-		if (tap_empty) tap_play <= 0;
+		if (~tap_play_btnD & tap_play_btn) tap_play <= ~tap_play;
+		if (~tap_finishD & tap_finish) tap_play <= 0;
 
 		tap_rd <= 0;
 		tap_wrreq <= 0;
 
-		if(tap_cycle) begin
-			if(~tap_rd & tap_data_ready) begin
-				tap_play_addr <= tap_play_addr + 1'd1;
-				tap_cycle <= 0;
-				tap_wrreq <= 1;
+		if(~tap_rd & ~tap_wrreq) begin
+			if(tap_cycle) begin
+				if(tap_data_ready) begin
+					tap_play_addr <= tap_play_addr + 1'd1;
+					tap_cycle <= 0;
+					tap_wrreq <= 1;
+				end
 			end
-		end
-		else begin
-			if(tap_play & ~tap_wrfull & tap_loaded) begin
-				tap_rd <= 1;
-				tap_cycle <= 1;
+			else begin
+				if(~tap_wrfull & tap_loaded) begin
+					tap_rd <= 1;
+					tap_cycle <= 1;
+				end
 			end
-		end
-
-		tap_reset <= 0;
-		if(ioctl_download && tap_load) begin
-			tap_play <= 0;
-			tap_play_addr <= 0;
-			tap_last_addr <= ioctl_addr+1'd1;
-			tap_reset <= 1;
-			tap_cycle <= 0;
 		end
 	end
 end
@@ -776,16 +766,19 @@ wire cass_do;
 
 c1530 c1530
 (
-	.clk32(clk_sys),
+	.clk(clk_sys),
+	.restart(tap_reset),
+
 	.clk_freq(56750336),
-	.restart_tape(tap_reset),
 	.cpu_freq(886724),
-	.host_tap_in(tap_data),
-	.host_tap_wrreq(tap_wrreq),
-	.tap_fifo_wrfull(tap_wrfull),
-	.tap_fifo_error(tap_empty),
-	.play(~cass_motor),
-	.DO(cass_do)
+
+	.din(tap_data),
+	.wr(tap_wrreq),
+	.full(tap_wrfull),
+	.empty(tap_finish),
+
+	.play(~cass_motor & tap_play),
+	.dout(cass_do)
 );
 
 endmodule
