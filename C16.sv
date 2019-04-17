@@ -726,8 +726,9 @@ always @(posedge clk_sys) begin
 	tap_finishD <= tap_finish;
 
 	if(tap_reset) begin
+		//C1530 module requires one more byte at the end due to fifo early check.
+		tap_last_addr <= ioctl_download ? ioctl_addr+2'd2 : 25'd0;
 		tap_play_addr <= 0;
-		tap_last_addr <= ioctl_download ? ioctl_addr+1'd1 : 25'd0;
 		tap_play <= ioctl_download;
 		tap_rd <= 0;
 		tap_cycle <= 0;

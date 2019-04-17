@@ -42,6 +42,7 @@ signal wave_len   : std_logic_vector(23 downto 0);
 signal fifo_dout  : std_logic_vector(7 downto 0);
 signal fifo_rd    : std_logic;
 signal fifo_empty : std_logic;
+signal fifo_full  : std_logic;
 signal get_24bits_len : std_logic;
 signal start_bytes: std_logic_vector(7 downto 0);
 signal skip_bytes : std_logic;
@@ -58,8 +59,10 @@ port map(
 	wrreq	 => wr,
 	q	    => fifo_dout,
 	empty	 => fifo_empty,
-	full	 => full
+	full	 => fifo_full
 );
+
+full <= fifo_full;
 
 process(clk, restart)
 variable
@@ -107,6 +110,7 @@ begin
 						end if;
 						if fifo_empty = '1' then
 							empty <= '1';
+							dout <= '1';
 						else
 							fifo_rd <= '1';
 							if fifo_dout = x"00" then
@@ -130,6 +134,7 @@ begin
 				end if;
 				if fifo_empty = '1' then
 					empty <= '1';
+					dout <= '1';
 				else
 					fifo_rd <= '1';			
 					wave_len <= fifo_dout & wave_len(23 downto 8);
@@ -137,7 +142,7 @@ begin
 			end if;
 
 			-- skip tap header bytes
-			if skip_bytes = '1' and fifo_empty = '0' and tick_cnt(0) = '1' then
+			if skip_bytes = '1' and fifo_full = '1' and tick_cnt(0) = '1' then
 				fifo_rd <= '1';
 				if start_bytes = 13 then
 					tap_mode <= fifo_dout(1 downto 0);
