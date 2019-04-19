@@ -710,7 +710,7 @@ reg [24:0] tap_play_addr;
 reg [24:0] tap_last_addr;
 wire [7:0] tap_data;
 wire       tap_data_ready;
-wire       tap_reset = reset | (ioctl_download & tap_load) | status[18];
+wire       tap_reset = reset | (ioctl_download & tap_load) | status[18] | (cass_motor & ((tap_last_addr - tap_play_addr) < 80));
 reg        tap_wrreq;
 wire       tap_wrfull;
 wire       tap_loaded = (tap_play_addr < tap_last_addr);
