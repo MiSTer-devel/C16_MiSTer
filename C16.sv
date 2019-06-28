@@ -2,7 +2,7 @@
 //  C16,Plus/4
 //
 //  Port to MiSTer
-//  Copyright (C) 2017,2018 Sorgelig
+//  Copyright (C) 2017-2019 Sorgelig
 //
 //  This program is free software; you can redistribute it and/or modify it
 //  under the terms of the GNU General Public License as published by the Free
@@ -29,7 +29,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [44:0] HPS_BUS,
+	inout  [45:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -63,7 +63,9 @@ module emu
 	output [15:0] AUDIO_R,
 	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
 	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
-	input         TAPE_IN,
+
+	//ADC
+	inout   [3:0] ADC_BUS,
 
 	// SD-SPI
 	output        SD_SCK,
@@ -116,6 +118,7 @@ module emu
 	input         OSD_STATUS
 );
 
+assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
@@ -129,7 +132,7 @@ assign VIDEO_ARX = status[1] ? 8'd16 : 8'd4;
 assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3; 
 
 `include "build_id.v" 
-parameter CONF_STR1 = {
+parameter CONF_STR = {
 	"C16;;",
 	"-;",
 	"F,PRG,Load Program;",
@@ -150,11 +153,8 @@ parameter CONF_STR1 = {
 	"-;",
 	"O5,Joysticks swap,No,Yes;",
 	"-;",
-	"O9,Model,C16,Plus/4;"
-};
-
-parameter CONF_STR2 = {
-	"6,Kernal,from boot.rom,Original;",
+	"O9,Model,C16,Plus/4;",
+	"D0O6,Kernal,from boot.rom,Original;",
 	"R0,Reset;",
 	"J,Fire;",
 	"V,v",`BUILD_DATE
@@ -182,7 +182,7 @@ reg         cfg_write;
 reg   [5:0] cfg_address;
 reg  [31:0] cfg_data;
 
-pll_hdmi_cfg pll_hdmi_cfg
+pll_cfg pll_cfg
 (
 	.mgmt_clk(CLK_50M),
 	.mgmt_reset(0),
@@ -265,15 +265,16 @@ wire        img_mounted;
 wire        img_readonly;
 reg         ioctl_wait = 0;
 
-hps_io #(.STRLEN(($size(CONF_STR1)>>3)+($size(CONF_STR2)>>3)+1)) hps_io
+hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 
-	.conf_str({CONF_STR1, rom_loaded ? "O" : "+", CONF_STR2}),
+	.conf_str(CONF_STR),
 
 	.buttons(buttons),
 	.status(status),
+	.status_menumask({~rom_loaded}),
 	.forced_scandoubler(forced_scandoubler),
 
 	.ps2_key(ps2_key),
