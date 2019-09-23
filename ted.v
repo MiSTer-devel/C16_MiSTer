@@ -645,7 +645,7 @@ always @(posedge clk)					// DMA and Charpos latch delay trick
 
 always @(posedge clk)
 	begin
-	if(latch_charposition)
+	if(hpos_392)
 		begin
 		if(VertSubCount==6)
 			CharPosLatch<=1;				// CharPosLatch signal activates in line 6 and signals that videocounter (DMA counter) has been latched. It is used in line 7 for character position latch.
@@ -662,7 +662,7 @@ always @(posedge clk)					// Character Position Reload register $FF1A/$FF1B
 			CharPosReload[7:0]<=data_in;
 	else if(hpos_392 & videoline==EOS)		// clear character position reload at last line
 			CharPosReload<=0;
-	else if(CharPosLatch & latch_charposition & VertSubActive)				// latch character position at 7th line of a character row if videocunter was latched in previous 6th row
+	else if(CharPosLatch & latch_charposition & enabledisplay)				// latch character position at 7th line of a character row if videocunter was latched in previous 6th row
 			CharPosReload<=CharPosition;
 	end
 
@@ -752,7 +752,9 @@ always @(posedge clk)
 	begin
 	if(hpos_392 & videoline==EOS)	// clear videocounter reload register at last line
 		videocounter_reload<=0;
-	else if(VertSubCount==6 && latch_charposition && VertSubActive)			// Latch videocounter position at 6th line of a character row
+		else if(inc_videocounter && hcounter_next == 9'd432 && tick8) // if the videocounter running when it's reloaded, that affects the reload value (HSP in Alpharay)
+		videocounter_reload<=videocounter+1'd1;
+	else if(VertSubCount==6 && latch_charposition && enabledisplay)			// Latch videocounter position at 6th line of a character row
 		videocounter_reload<=videocounter;
 	end	
 	
@@ -1294,7 +1296,7 @@ always @*
 		if(dma_state==TDMA)
 			tedaddress={vmbase,(badline)?1'b0:1'b1,videocounter};				// attribute or character pointer fetch address
 		end
-	else if(~test)	
+	else //if(~test)	
 		begin						 // generating address for phi0 phase (will be clocked and valid in phi0)
 		if(refresh_inc|stopreg)				// dram refresh address
 			tedaddress={8'hff,refreshcounter};
@@ -1310,12 +1312,14 @@ always @*
 				tedaddress={bmapbase,CharPosition,VertSubCount};	// bitmap mode fetch address
 			end
 		end
+		/*
 	else begin					// IC test mode fetch addresses
 			dotfetch=1;
 			if(~bmm)
 				tedaddress={5'h18,attrpointer,VertSubCount};				// test mode character screen
 			else tedaddress={3'b111,(CharPosition && {2'b11,attrpointer}),VertSubCount};
 			end
+			*/
 	end
 
 //-----------------------------------------------------------------------------------------------
