@@ -575,7 +575,7 @@ assign AUDIO_MIX = 0;
 assign AUDIO_S = 1;
 
 wire hs, vs, hblank, vblank, ce_pix;
-wire [3:0] r,g,b;
+wire [3:0] r,g,b,rc,gc,bc;
 
 wire [2:0] scale = status[4:2];
 wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
@@ -593,6 +593,29 @@ always @(posedge CLK_VIDEO) begin
 	ce_vid <= ~old_ce & ce_pix;
 end
 
+wire vsc,hsc,hblc,vblc;
+video_cleaner video_cleaner
+(
+	.clk_vid(CLK_VIDEO),
+	.ce_pix(ce_vid),
+
+	.R(r),
+	.G(g),
+	.B(b),
+	.HSync(hs),
+	.VSync(vs),
+	.HBlank(hblank),
+	.VBlank(vblank),
+
+	.VGA_R(rc),
+	.VGA_G(gc),
+	.VGA_B(bc),
+	.VGA_VS(vsc),
+	.VGA_HS(hsc),
+	.HBlank_out(hblc),
+	.VBlank_out(vblc)
+);
+
 video_mixer #(456, 1) mixer
 (
 	.clk_sys(CLK_VIDEO),
@@ -604,16 +627,16 @@ video_mixer #(456, 1) mixer
 	.scanlines(0),
 	.scandoubler(scale || forced_scandoubler),
 
-	.R(r),
-	.G(g),
-	.B(b),
+	.R(rc),
+	.G(gc),
+	.B(bc),
 
 	.mono(0),
 
-	.HSync(~hs),
-	.VSync(~vs),
-	.HBlank(hblank),
-	.VBlank(vblank),
+	.HSync(hsc),
+	.VSync(vsc),
+	.HBlank(hblc),
+	.VBlank(vblc),
 
 	.VGA_R(VGA_R),
 	.VGA_G(VGA_G),
