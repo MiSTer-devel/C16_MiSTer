@@ -1296,7 +1296,7 @@ always @*
 		if(dma_state==TDMA)
 			tedaddress={vmbase,(badline)?1'b0:1'b1,videocounter};				// attribute or character pointer fetch address
 		end
-	else if(~test)	
+	else //if(~test)	
 		begin						 // generating address for phi0 phase (will be clocked and valid in phi0)
 		if(refresh_inc|stopreg)				// dram refresh address
 			tedaddress={8'hff,refreshcounter};
@@ -1312,12 +1312,14 @@ always @*
 				tedaddress={bmapbase,CharPosition,VertSubCount};	// bitmap mode fetch address
 			end
 		end
+		/*
 	else begin					// IC test mode fetch addresses
 			dotfetch=1;
 			if(~bmm)
 				tedaddress={5'h18,attrpointer,VertSubCount};				// test mode character screen
 			else tedaddress={3'b111,(CharPosition && {2'b11,attrpointer}),VertSubCount};
 			end
+			*/
 	end
 
 //-----------------------------------------------------------------------------------------------
