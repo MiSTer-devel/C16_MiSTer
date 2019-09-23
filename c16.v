@@ -260,7 +260,7 @@ end
 
 // assign VSYNC=1'b1; // set scart mode to RGB for TV
 assign c16_addr=cpu_addr&ted_addr;									 // C16 address bus
-assign c16_data=cpu_data&ted_data&DIN&keyport_data;//&sid_data; // C16 data bus
+assign c16_data=cpu_data&ted_data&DIN&keyport_data&sid_data; // C16 data bus
 
 assign ADDR=c16_addr;
 assign DOUT=cpu_data;
