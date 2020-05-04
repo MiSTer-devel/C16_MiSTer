@@ -270,6 +270,7 @@ wire        sd_buff_wr;
 wire        img_mounted;
 wire        img_readonly;
 reg         ioctl_wait = 0;
+wire [21:0] gamma_bus;
 
 hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
@@ -282,6 +283,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.status(status),
 	.status_menumask({~rom_loaded}),
 	.forced_scandoubler(forced_scandoubler),
+	.gamma_bus(gamma_bus),
 
 	.ps2_key(ps2_key),
 
@@ -390,7 +392,7 @@ always @(posedge clk_sys) if(ioctl_wr && (ioctl_addr[24:14]==1) && !ioctl_index)
 
 // Kernal rom
 wire [7:0] kernal0_dout;
-gen_rom #("roms/c16_kernal.mif") kernal0
+gen_rom #("rtl/roms/c16_kernal.mif") kernal0
 (
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
@@ -404,7 +406,7 @@ gen_rom #("roms/c16_kernal.mif") kernal0
 );
 
 wire [7:0] kernal1_dout;
-gen_rom #("roms/c16_kernal.mif") kernal1
+gen_rom #("rtl/roms/c16_kernal.mif") kernal1
 (
 	.wrclock(clk_sys),
 
@@ -416,7 +418,7 @@ gen_rom #("roms/c16_kernal.mif") kernal1
 
 // Basic rom
 wire [7:0] basic_dout;
-gen_rom #("roms/c16_basic.mif") basic
+gen_rom #("rtl/roms/c16_basic.mif") basic
 (
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
@@ -431,7 +433,7 @@ gen_rom #("roms/c16_basic.mif") basic
 
 // Func low
 wire [7:0] fl_dout;
-gen_rom #("roms/3-plus-1_low.mif") funcl
+gen_rom #("rtl/roms/3-plus-1_low.mif") funcl
 (
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
@@ -446,7 +448,7 @@ gen_rom #("roms/3-plus-1_low.mif") funcl
 
 // Func high
 wire [7:0] fh_dout;
-gen_rom #("roms/3-plus-1_high.mif") funch
+gen_rom #("rtl/roms/3-plus-1_high.mif") funch
 (
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
@@ -618,7 +620,7 @@ video_cleaner video_cleaner
 
 video_mixer #(456, 1) mixer
 (
-	.clk_sys(CLK_VIDEO),
+	.clk_vid(CLK_VIDEO),
 	
 	.ce_pix(ce_vid),
 	.ce_pix_out(CE_PIXEL),
@@ -626,6 +628,7 @@ video_mixer #(456, 1) mixer
 	.hq2x(scale == 1),
 	.scanlines(0),
 	.scandoubler(scale || forced_scandoubler),
+	.gamma_bus(gamma_bus),
 
 	.R(rc),
 	.G(gc),

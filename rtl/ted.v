@@ -1285,7 +1285,7 @@ always @(posedge clk)
 	end
 
 assign charpointer=(inc_videocounter)?((badline2)?data_in:char_buf[39]):8'd0;	
-assign attrpointer=attr_buf[39];
+//assign attrpointer=attr_buf[39];
 	
 always @*
 	begin
