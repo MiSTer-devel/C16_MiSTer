@@ -282,11 +282,11 @@ end
 
 // connect IEC bus
 assign {port_in[5],port_in[3:0]}=0;
-assign IEC_DATAOUT=port_out[0];
-assign port_in[7]=~(iec_data|port_out[0]);
-assign IEC_CLKOUT=port_out[1];
-assign port_in[6]=~(iec_clk|port_out[1]);
-assign IEC_ATNOUT=port_out[2];
+assign IEC_DATAOUT=~port_out[0];
+assign port_in[7]=iec_data & ~port_out[0];
+assign IEC_CLKOUT=~port_out[1];
+assign port_in[6]=iec_clk & ~port_out[1];
+assign IEC_ATNOUT=~port_out[2];
 assign IEC_RESET=sreset;
 
 assign cass_mtr = port_out[3];
