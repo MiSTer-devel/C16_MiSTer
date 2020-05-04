@@ -618,7 +618,7 @@ video_cleaner video_cleaner
 	.VBlank_out(vblc)
 );
 
-video_mixer #(456, 1) mixer
+video_mixer #(456, 1, 1) mixer
 (
 	.clk_vid(CLK_VIDEO),
 	
@@ -689,10 +689,14 @@ c1541_sd c1541_sd
 
 reg ce_c1541;
 always @(negedge clk_sys) begin
+	reg pald1, pald2;
 	int sum = 0;
 	int msum;
 	
-	msum <= pal ? 56750336 : 57272720;
+	pald1 <= pal;
+	pald2 <= pald1;
+
+	msum <= pald2 ? 56750336 : 57272720;
 
 	ce_c1541 <= 0;
 	sum = sum + 32000000;
