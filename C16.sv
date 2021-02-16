@@ -52,6 +52,9 @@ module emu
 	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
 
+	input  [11:0] HDMI_WIDTH,
+	input  [11:0] HDMI_HEIGHT,
+
 `ifdef USE_FB
 	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
 	// FB_FORMAT:
@@ -181,12 +184,6 @@ assign LED_POWER = 0;
 assign BUTTONS   = 0;
 assign VGA_SCALER= 0;
 
-wire [1:0] ar = status[20:19];
-
-assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
-
-
 `include "build_id.v" 
 parameter CONF_STR = {
 	"C16;;",
@@ -204,6 +201,7 @@ parameter CONF_STR = {
 	"OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
+	"d1OO,Vertical Crop,No,Yes;",
 	"-;",
 	"ODE,SID card,Disabled,6581,8580;",
 	"-;",
@@ -252,11 +250,14 @@ pll_cfg pll_cfg
 	.reconfig_from_pll(reconfig_from_pll)
 );
 
+reg c16_pal;
+always @(posedge clk_c16) c16_pal <= pal;
+
 always @(posedge CLK_50M) begin
 	reg pald = 0, pald2 = 0;
 	reg [2:0] state = 0;
 
-	pald  <= pal;
+	pald  <= c16_pal;
 	pald2 <= pald;
 
 	cfg_write <= 0;
@@ -331,7 +332,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({~rom_loaded}),
+	.status_menumask({|vcrop,~rom_loaded}),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
@@ -587,6 +588,7 @@ C16 c16
 	.GREEN   ( g ),
 	.BLUE    ( b ),
 	.tvmode  ( status[8:7] ),
+	.wide    ( wide ),
 
 	.RnW     ( c16_rnw ),
 	.ADDR    ( c16_addr ),
@@ -668,6 +670,35 @@ video_cleaner video_cleaner
 	.VBlank_out(vblc)
 );
 
+reg [9:0] vcrop;
+reg wide;
+always @(posedge CLK_VIDEO) begin
+	vcrop <= 0;
+	wide <= 0;
+	if(HDMI_WIDTH >= (HDMI_HEIGHT + HDMI_HEIGHT[11:1])) begin
+		if(HDMI_HEIGHT == 480)  vcrop <= 240;
+		if(HDMI_HEIGHT == 600)  begin vcrop <= 200; wide <= vcrop_en; end
+		if(HDMI_HEIGHT == 720)  vcrop <= 240;
+		if(HDMI_HEIGHT == 768)  vcrop <= 256; // NTSC mode has 245 visible lines only!
+		if(HDMI_HEIGHT == 800)  begin vcrop <= 200; wide <= vcrop_en; end
+		if(HDMI_HEIGHT == 1080) vcrop <= pal ? 10'd270 : 10'd216;
+		if(HDMI_HEIGHT == 1200) vcrop <= 240;
+	end
+end
+
+wire [1:0] ar = status[20:19];
+wire vcrop_en = status[24];
+wire vga_de;
+video_crop video_crop
+(
+	.*,
+	.VGA_DE_IN(vga_de),
+	.ARX((!ar) ? (wide ? 12'd324 : 12'd400) : (ar - 1'd1)),
+	.ARY((!ar) ? 12'd300 : 12'd0),
+	.CROP_SIZE(vcrop_en ? vcrop : 10'd0),
+	.CROP_OFF(0)
+);
+
 video_mixer #(456, 1, 1) mixer
 (
 	.clk_vid(CLK_VIDEO),
@@ -696,7 +727,7 @@ video_mixer #(456, 1, 1) mixer
 	.VGA_B(VGA_B),
 	.VGA_VS(VGA_VS),
 	.VGA_HS(VGA_HS),
-	.VGA_DE(VGA_DE)
+	.VGA_DE(vga_de)
 );
 
 ///////////////////////////////////////////////////
@@ -743,7 +774,7 @@ always @(negedge clk_sys) begin
 	int sum = 0;
 	int msum;
 	
-	pald0 <= pal;
+	pald0 <= c16_pal;
 	pald1 <= pald0;
 	pald2 <= pald1;
 

@@ -47,6 +47,7 @@ module ted
 	output reg    vsync,
 	output reg    hblank,
 	output reg    vblank_out,
+	input         wide,
 	output        ce_pix,
 	output        irq,
 	output        ba,
@@ -172,7 +173,7 @@ reg inc_vertline_window=1'b0;							// active for one single clock cycle, signal
 // horizontal event positions used for the horizontal event decoder. They don't necessarily reflect the values seen in documentation 
 reg hpos_0,hpos_8,hpos_154,hpos_172,hpos_288,hpos_295,hpos_296,hpos_303,hpos_304;
 reg hpos_312,hpos_320,hpos_336,hpos_343,hpos_348,hpos_353,hpos_359,hpos_380,hpos_382;
-reg hpos_384,hpos_391,hpos_392,hpos_400,hpos_407,hpos_423,hpos_431,hpos_432,hpos_440;
+reg hpos_384,hpos_391,hpos_392,hpos_400,hpos_407,hpos_423,hpos_431,hpos_432,hpos_440,hpos_1,hpos_321;
 
 reg inc_charpos=1'b0;									// signals internal character position register (not user accessible) increment range inside scanline (not same as $FF1A/$FF1B) 
 reg [15:0] addr_out_reg;								// TED's address out register
@@ -903,6 +904,7 @@ always @(posedge clk)
 always @(hcounter)
 	begin
 	hpos_0=0;
+	hpos_1=0;
 	hpos_8=0;
 	hpos_154=0;
 	hpos_172=0;
@@ -913,6 +915,7 @@ always @(hcounter)
 	hpos_304=0;
 	hpos_312=0;
 	hpos_320=0;
+	hpos_321=0;
 	hpos_336=0;
 	hpos_343=0;
 	hpos_348=0;
@@ -931,6 +934,7 @@ always @(hcounter)
 	hpos_440=0;
 	case (hcounter)
 				0:		hpos_0=1;				// Start of 40 column screen
+				1:    hpos_1=1;
 				8:		hpos_8=1;				// Start of 38 column screen
 				154:  hpos_154=1;				// Equalization pulse 1 start
 				172:	hpos_172=1;				// Equalization pulse 1 end
@@ -942,6 +946,7 @@ always @(hcounter)
 				304:  hpos_304=1;				// End of character window
 				312:	hpos_312=1;				// End of 38 column screen
 				320: 	hpos_320=1;				// End of 40 column screen
+				321:  hpos_321=1;
 				336:  hpos_336=1;				// Stop refresh singleclock but delayed by 2 cycle (actual stop at 344)
 				343:	hpos_343=1;				// Stop refresh counter increment (344 in real TED)
 				348:	hpos_348=1;				// Flash (blink) counter increment point delayed by 2 cycles (increments at 352)
@@ -1218,11 +1223,11 @@ always @(posedge clk)								//	Horizontal sync pulse (due to original HMOS tech
 	end
 
 always @(posedge clk) begin							// horizontal blanking zone
-	if(hpos_423) begin										
-		if(videoline==(VBLANK_STOP-1'd1)) vblank_out<=0;
+	if((wide && hpos_1) || (~wide && hpos_423)) begin										
+		if(videoline==VBLANK_STOP) vblank_out<=0;
 		hblank<=0;
-	end else if(hpos_353) begin								// in real TED it starts at 352 but slew rate takes 2 pixels. 353 is at halfway. FIXME: Might be initiated at 344.
-		if(videoline==(VBLANK_START-1'd1)) vblank_out<=1;
+	end else if((wide && hpos_321) || (~wide && hpos_353)) begin		// in real TED it starts at 352 but slew rate takes 2 pixels. 353 is at halfway. FIXME: Might be initiated at 344.
+		if(videoline==VBLANK_START) vblank_out<=1;
 		hblank<=1;
 	end
 end

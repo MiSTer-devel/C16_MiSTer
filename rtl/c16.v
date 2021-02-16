@@ -46,6 +46,7 @@ module C16
 	output  [3:0] GREEN,
 	output  [3:0] BLUE,
 	input   [1:0] tvmode,
+	input         wide,
 
 	output        RnW,
 	output [15:0] ADDR,
@@ -195,6 +196,7 @@ ted mos8360
 	.csync(CSYNC),
 	.hsync(HSYNC),
 	.vsync(VSYNC),
+	.wide(wide),
 	.hblank(HBLANK),
 	.vblank_out(VBLANK),
 	.ce_pix(CE_PIX),
