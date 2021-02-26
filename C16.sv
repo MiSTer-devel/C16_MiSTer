@@ -39,8 +39,9 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output [11:0] VIDEO_ARX,
-	output [11:0] VIDEO_ARY,
+	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
+	output [12:0] VIDEO_ARX,
+	output [12:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -201,7 +202,9 @@ parameter CONF_STR = {
 	"OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
+	"-;",
 	"d1OO,Vertical Crop,No,Yes;",
+	"OPQ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"ODE,SID card,Disabled,6581,8580;",
 	"-;",
@@ -675,7 +678,7 @@ reg wide;
 always @(posedge CLK_VIDEO) begin
 	vcrop <= 0;
 	wide <= 0;
-	if(HDMI_WIDTH >= (HDMI_HEIGHT + HDMI_HEIGHT[11:1])) begin
+	if(HDMI_WIDTH >= (HDMI_HEIGHT + HDMI_HEIGHT[11:1]) && !forced_scandoubler && !scale) begin
 		if(HDMI_HEIGHT == 480)  vcrop <= 240;
 		if(HDMI_HEIGHT == 600)  begin vcrop <= 200; wide <= vcrop_en; end
 		if(HDMI_HEIGHT == 720)  vcrop <= 240;
@@ -689,39 +692,35 @@ end
 wire [1:0] ar = status[20:19];
 wire vcrop_en = status[24];
 wire vga_de;
-video_crop video_crop
+video_freak video_freak
 (
 	.*,
 	.VGA_DE_IN(vga_de),
 	.ARX((!ar) ? (wide ? 12'd324 : 12'd400) : (ar - 1'd1)),
 	.ARY((!ar) ? 12'd300 : 12'd0),
 	.CROP_SIZE(vcrop_en ? vcrop : 10'd0),
-	.CROP_OFF(0)
+	.CROP_OFF(0),
+	.SCALE(status[26:25])
 );
 
 video_mixer #(456, 1, 1) mixer
 (
-	.clk_vid(CLK_VIDEO),
+	.CLK_VIDEO(CLK_VIDEO),
 	
-	.ce_pix(ce_vid),
-	.ce_pix_out(CE_PIXEL),
-
 	.hq2x(scale == 1),
-	.scanlines(0),
 	.scandoubler(scale || forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
+	.ce_pix(ce_vid),
 	.R(rc),
 	.G(gc),
 	.B(bc),
-
-	.mono(0),
-
 	.HSync(hsc),
 	.VSync(vsc),
 	.HBlank(hblc),
 	.VBlank(vblc),
 
+	.CE_PIXEL(CE_PIXEL),
 	.VGA_R(VGA_R),
 	.VGA_G(VGA_G),
 	.VGA_B(VGA_B),
@@ -770,15 +769,14 @@ c1541_sd c1541_sd
 
 reg ce_c1541;
 always @(negedge clk_sys) begin
-	reg pald0, pald1, pald2;
+	reg pald0, pald1;
 	int sum = 0;
 	int msum;
 	
 	pald0 <= c16_pal;
 	pald1 <= pald0;
-	pald2 <= pald1;
 
-	msum <= pald2 ? 56750336 : 57272720;
+	msum <= pald1 ? 56750336 : 57272720;
 
 	ce_c1541 <= 0;
 	sum = sum + 32000000;
