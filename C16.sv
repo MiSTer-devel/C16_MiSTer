@@ -203,7 +203,8 @@ parameter CONF_STR = {
 	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
 	"-;",
-	"d1OO,Vertical Crop,No,Yes;",
+	"H2d1ON,Vertical Crop,No,Yes;",
+	"h2d1ONO,Vertical Crop,No,270,216;",
 	"OPQ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"ODE,SID card,Disabled,6581,8580;",
@@ -335,7 +336,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({|vcrop,~rom_loaded}),
+	.status_menumask({en1080p,|vcrop,~rom_loaded}),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
@@ -684,13 +685,16 @@ always @(posedge CLK_VIDEO) begin
 		if(HDMI_HEIGHT == 720)  vcrop <= 240;
 		if(HDMI_HEIGHT == 768)  vcrop <= 256; // NTSC mode has 245 visible lines only!
 		if(HDMI_HEIGHT == 800)  begin vcrop <= 200; wide <= vcrop_en; end
-		if(HDMI_HEIGHT == 1080) vcrop <= pal ? 10'd270 : 10'd216;
+		if(HDMI_HEIGHT == 1080) vcrop <= (~pal | status[24]) ? 10'd216 : 10'd270;
 		if(HDMI_HEIGHT == 1200) vcrop <= 240;
 	end
 end
 
+reg en1080p;
+always @(posedge CLK_VIDEO) en1080p <= (HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080);
+
 wire [1:0] ar = status[20:19];
-wire vcrop_en = status[24];
+wire vcrop_en = en1080p ? |status[24:23] : status[23];
 wire vga_de;
 video_freak video_freak
 (
