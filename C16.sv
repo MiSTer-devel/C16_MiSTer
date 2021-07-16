@@ -185,24 +185,28 @@ assign LED_POWER = 0;
 assign BUTTONS   = 0;
 assign VGA_SCALER= 0;
 
+// Status Bit Map:
+//              Upper                          Lower
+// 0         1         2         3          4         5         6
+// 01234567890123456789012345678901 23456789012345678901234567890123
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// X XXXXXXXX   XX XXXXX  XXXX
+
 `include "build_id.v" 
 parameter CONF_STR = {
 	"C16;;",
-	"-;",
-	"F1,PRG,Load Program;",
-	"F2,BIN,Load Cart(Plus/4);",
-	"-;",
 	"S0,D64,Mount Disk;",
 	"-;",
-	"F4,TAP,Tape Load;",
-	"RG,Tape Play/Pause;",
-	"RI,Tape Unload;",
-	"OH,Tape Sound,Off,On;",
+	"h4F1,PRGTAPBIN,Load;",
+	"H4F1,PRGTAP,Load;",
 	"-;",
+	"h3RG,Tape Play/Pause;",
+	"h3RI,Tape Unload;",
+	"h3OH,Tape Sound,Off,On;",
+	"h3-;",
 	"OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
-	"-;",
 	"H2d1ON,Vertical Crop,No,Yes;",
 	"h2d1ONO,Vertical Crop,No,270,216;",
 	"OPQ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
@@ -212,8 +216,10 @@ parameter CONF_STR = {
 	"O5,Joysticks swap,No,Yes;",
 	"-;",
 	"O9,Model,C16,Plus/4;",
-	"D0O6,Kernal,from boot.rom,Original;",
-	"R0,Reset;",
+	"D0O6,Kernal,Loaded,Original;",
+	"FC3,ROM,Load Kernal;",
+	"-;",
+	"R0,Reset & Apply;",
 	"J,Fire;",
 	"V,v",`BUILD_DATE
 };
@@ -336,7 +342,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({en1080p,|vcrop,~rom_loaded}),
+	.status_menumask({model,tap_loaded,en1080p,|vcrop,~rom_loaded}),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
@@ -364,6 +370,11 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.joystick_1(joyb)
 );
 
+wire load_prg = (ioctl_index == 'h01);
+wire load_tap = (ioctl_index == 'h41);
+wire load_crt = (ioctl_index == 'h81);
+wire load_rom = (ioctl_index == 'h03);
+
 /////////////////  RESET  /////////////////////////
 
 wire sys_reset = RESET | status[0] | buttons[1];
@@ -386,7 +397,7 @@ always @(posedge clk_sys) begin
 	dl_wr <= 0;
 	old_download <= ioctl_download;
 
-	if(ioctl_download && (ioctl_index == 1)) begin
+	if(ioctl_download && load_prg) begin
 		state <= 0;
 		if(ioctl_wr) begin
 			     if(ioctl_addr == 0) addr[7:0]  <= ioctl_dout;
@@ -400,7 +411,7 @@ always @(posedge clk_sys) begin
 		end
 	end
 
-	if(old_download && ~ioctl_download && (ioctl_index == 1)) state <= 1;
+	if(old_download && ~ioctl_download && load_prg) state <= 1;
 	if(state) state <= state + 1'd1;
 
 	case(state)
@@ -443,7 +454,7 @@ end
 /////////////////   ROM   /////////////////////////
 
 reg rom_loaded =0;
-always @(posedge clk_sys) if(ioctl_wr && (ioctl_addr[24:14]==1) && !ioctl_index) rom_loaded <=1;
+always @(posedge clk_sys) if(ioctl_wr && (ioctl_addr[24:14]==1) && load_rom) rom_loaded <=1;
 
 // Kernal rom
 wire [7:0] kernal0_dout;
@@ -452,7 +463,7 @@ gen_rom #("rtl/roms/c16_kernal.mif") kernal0
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
 	.data(ioctl_dout),
-	.wren(ioctl_wr && (ioctl_addr[24:14]==1) && !ioctl_index),
+	.wren(ioctl_wr && (ioctl_addr[24:14]==1) && load_rom),
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
@@ -478,7 +489,7 @@ gen_rom #("rtl/roms/c16_basic.mif") basic
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
 	.data(ioctl_dout),
-	.wren(ioctl_wr && (ioctl_addr[24:14]==2) && !ioctl_index),
+	.wren(ioctl_wr && (ioctl_addr[24:14]==2) && load_rom),
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
@@ -493,7 +504,7 @@ gen_rom #("rtl/roms/3-plus-1_low.mif") funcl
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
 	.data(ioctl_dout),
-	.wren(ioctl_wr && (ioctl_addr[24:14]==3) && !ioctl_index),
+	.wren(ioctl_wr && (ioctl_addr[24:14]==3) && load_rom),
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
@@ -508,7 +519,7 @@ gen_rom #("rtl/roms/3-plus-1_high.mif") funch
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
 	.data(ioctl_dout),
-	.wren(ioctl_wr && (ioctl_addr[24:14]==4) && !ioctl_index),
+	.wren(ioctl_wr && (ioctl_addr[24:14]==4) && load_rom),
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
@@ -523,7 +534,7 @@ gen_rom cart_l
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
 	.data(ioctl_dout),
-	.wren(ioctl_wr && (ioctl_addr[24:14]==0) && (ioctl_index==2)),
+	.wren(ioctl_wr && (ioctl_addr[24:14]==0) && load_crt),
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
@@ -538,7 +549,7 @@ gen_rom cart_h
 	.wrclock(clk_sys),
 	.wraddress(ioctl_addr[13:0]),
 	.data(ioctl_dout),
-	.wren(ioctl_wr && (ioctl_addr[24:14]==1) && (ioctl_index==2)),
+	.wren(ioctl_wr && (ioctl_addr[24:14]==1) && load_crt),
 
 	.rdclock(clk_c16),
 	.rdaddress(c16_addr[13:0]),
@@ -546,12 +557,12 @@ gen_rom cart_h
 	.cs(~cs1 && carth && romh==1 && ~kern)
 );
 
-wire cart_reset = model & ioctl_download & (ioctl_index==2);
+wire cart_reset = model & ioctl_download & load_crt;
 reg cartl,carth;
 always @(posedge clk_sys) begin
 	if(sys_reset) {cartl,carth} <= 0;
-	if(ioctl_wr && (ioctl_addr[24:14]==0) && (ioctl_index==2)) cartl <= 1;
-	if(ioctl_wr && (ioctl_addr[24:14]==1) && (ioctl_index==2)) carth <= 1;
+	if(ioctl_wr && (ioctl_addr[24:14]==0) && load_crt) cartl <= 1;
+	if(ioctl_wr && (ioctl_addr[24:14]==1) && load_crt) carth <= 1;
 end
 
 wire kern = (c16_addr[15:8]==8'hFC);
@@ -747,7 +758,7 @@ c1541_sd c1541_sd
 
 	.rom_addr(ioctl_addr[13:0]),
 	.rom_data(ioctl_dout),
-	.rom_wr(ioctl_wr && (ioctl_addr[24:14] == 0) && !ioctl_index),
+	.rom_wr(ioctl_wr && (ioctl_addr[24:14] == 0) && load_rom),
 	.rom_std(status[6]),
 
    .disk_change(img_mounted ),
@@ -797,7 +808,7 @@ assign DDRAM_CLK = clk_sys;
 ddram ddram
 (
 	.*,
-	.addr((ioctl_download & tap_load) ? ioctl_addr : tap_play_addr),
+	.addr((ioctl_download & load_tap) ? ioctl_addr : tap_play_addr),
 	.dout(tap_data),
 	.din(ioctl_dout),
 	.we(tap_wr),
@@ -813,7 +824,7 @@ always @(posedge clk_sys) begin
 	if(~old_reset && reset) ioctl_wait <= 0;
 
 	tap_wr <= 0;
-	if(ioctl_wr & tap_load) begin
+	if(ioctl_wr & load_tap) begin
 		ioctl_wait <= 1;
 		tap_wr <= 1;
 	end
@@ -831,13 +842,12 @@ reg [24:0] tap_play_addr;
 reg [24:0] tap_last_addr;
 wire [7:0] tap_data;
 wire       tap_data_ready;
-wire       tap_reset = reset | (ioctl_download & tap_load) | status[18] | (cass_motor & ((tap_last_addr - tap_play_addr) < 80));
+wire       tap_reset = reset | (ioctl_download & load_tap) | status[18] | (cass_motor & ((tap_last_addr - tap_play_addr) < 80));
 reg        tap_wrreq;
 wire       tap_wrfull;
 wire       tap_loaded = (tap_play_addr < tap_last_addr);
 reg        tap_play;
 wire       tap_play_btn = status[16];
-wire       tap_load = (ioctl_index == 4);
 
 always @(posedge clk_sys) begin
 	reg tap_play_btnD, tap_finishD;
@@ -848,9 +858,9 @@ always @(posedge clk_sys) begin
 
 	if(tap_reset) begin
 		//C1530 module requires one more byte at the end due to fifo early check.
-		tap_last_addr <= (ioctl_download & tap_load) ? ioctl_addr+2'd2 : 25'd0;
+		tap_last_addr <= (ioctl_download & load_tap) ? ioctl_addr+2'd2 : 25'd0;
 		tap_play_addr <= 0;
-		tap_play <= (ioctl_download & tap_load);
+		tap_play <= (ioctl_download & load_tap);
 		tap_rd <= 0;
 		tap_cycle <= 0;
 	end
