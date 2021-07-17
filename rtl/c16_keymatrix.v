@@ -30,6 +30,7 @@ module c16_keymatrix
 	input         clk,
 	input  [10:0] ps2_key,
 	input   [7:0] row,
+	output reg    key_play = 0,
 	output  [7:0] kbus
 );
 
@@ -140,6 +141,7 @@ always @(posedge clk) begin
 			9'h14A: key_slash<=pressed;
 			9'h15A: key_return<=pressed;
 			9'h171: key_del<=pressed;
+			9'h17D: key_play<=pressed;
 		endcase
 	end
 end

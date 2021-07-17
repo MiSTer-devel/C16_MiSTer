@@ -60,11 +60,13 @@ module C16
 	output        cass_mtr,
 	input         cass_in,
 	input         cass_aud,
+	output        cass_out,
 
 	input   [4:0] JOY0,
 	input   [4:0] JOY1,
 
 	input  [10:0] ps2_key,
+	output        key_play,
 
 	output        IEC_DATAOUT,
 	input         IEC_DATAIN,
@@ -230,6 +232,7 @@ c16_keymatrix keyboard
 	.clk(CLK28),
 	.ps2_key(ps2_key),
 	.row(keyboard_row),
+	.key_play(key_play),
 	.kbus(kbus_kbd)
 );
 
@@ -293,5 +296,6 @@ assign IEC_RESET=sreset;
 
 assign cass_mtr = port_out[3];
 assign port_in[4]= cass_in;
+assign cass_out = port_out[6];
 
 endmodule
