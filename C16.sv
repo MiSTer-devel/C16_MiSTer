@@ -55,8 +55,9 @@ module emu
 
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
+	output        HDMI_FREEZE,
 
-`ifdef USE_FB
+`ifdef MISTER_FB
 	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
 	// FB_FORMAT:
 	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
@@ -74,6 +75,7 @@ module emu
 	input         FB_LL,
 	output        FB_FORCE_BLANK,
 
+`ifdef MISTER_FB_PALETTE
 	// Palette control for 8bit modes.
 	// Ignored for other video modes.
 	output        FB_PAL_CLK,
@@ -81,6 +83,7 @@ module emu
 	output [23:0] FB_PAL_DOUT,
 	input  [23:0] FB_PAL_DIN,
 	output        FB_PAL_WR,
+`endif
 `endif
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
@@ -112,7 +115,6 @@ module emu
 	output        SD_CS,
 	input         SD_CD,
 
-`ifdef USE_DDRAM
 	//High latency DDR3 RAM interface
 	//Use for non-critical time purposes
 	output        DDRAM_CLK,
@@ -125,9 +127,7 @@ module emu
 	output [63:0] DDRAM_DIN,
 	output  [7:0] DDRAM_BE,
 	output        DDRAM_WE,
-`endif
 
-`ifdef USE_SDRAM
 	//SDRAM interface with lower latency
 	output        SDRAM_CLK,
 	output        SDRAM_CKE,
@@ -140,10 +140,10 @@ module emu
 	output        SDRAM_nCAS,
 	output        SDRAM_nRAS,
 	output        SDRAM_nWE,
-`endif
 
-`ifdef DUAL_SDRAM
+`ifdef MISTER_DUAL_SDRAM
 	//Secondary SDRAM
+	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
 	input         SDRAM2_EN,
 	output        SDRAM2_CLK,
 	output [12:0] SDRAM2_A,
@@ -183,6 +183,7 @@ assign LED_DISK  = 0;
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
 assign VGA_SCALER= 0;
+assign HDMI_FREEZE = 0;
 
 // Status Bit Map:
 //              Upper                          Lower
@@ -194,7 +195,7 @@ assign VGA_SCALER= 0;
 `include "build_id.v" 
 parameter CONF_STR = {
 	"C16;;",
-	"S0,D64,Mount Disk;",
+	"S0,D64G64,Mount Disk;",
 	"-;",
 	"h4F1,PRGTAPBIN,Load;",
 	"H4F1,PRGTAP,Load;",
@@ -227,13 +228,13 @@ parameter CONF_STR = {
 /////////////////  CLOCKS  ////////////////////////
 
 wire clk_sys;
-wire clk_c16 = clk_sys & clk_en;
 wire locked;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.outclk_0(clk_sys),
+	.outclk_1(CLK_VIDEO),
 	.reconfig_to_pll(reconfig_to_pll),
 	.reconfig_from_pll(reconfig_from_pll),
 	.locked(locked)
@@ -261,7 +262,7 @@ pll_cfg pll_cfg
 );
 
 reg c16_pal;
-always @(posedge clk_c16) c16_pal <= pal;
+always @(posedge clk_sys) c16_pal <= pal;
 
 always @(posedge CLK_50M) begin
 	reg pald = 0, pald2 = 0;
@@ -295,16 +296,6 @@ always @(posedge CLK_50M) begin
 	end
 end
 
-reg clk_en = 0;
-always @(negedge clk_sys) begin
-	reg lockedd;
-
-	lockedd <= locked;
-	clk_en <= ~clk_en;
-	if(~lockedd) clk_en <= 0;
-end
-
-
 /////////////////  HPS  ///////////////////////////
 
 wire [31:0] status;
@@ -320,25 +311,25 @@ wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
 wire        forced_scandoubler;
 
-wire [31:0] sd_lba;
+wire [31:0] sd_lba[1];
+wire  [5:0] sd_blk_cnt[1];
 wire        sd_rd;
 wire        sd_wr;
 wire        sd_ack;
-wire  [8:0] sd_buff_addr;
+wire [13:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout;
-wire  [7:0] sd_buff_din;
+wire  [7:0] sd_buff_din[1];
 wire        sd_buff_wr;
 wire        img_mounted;
 wire        img_readonly;
+wire [31:0] img_size;
 reg         ioctl_wait = 0;
 wire [21:0] gamma_bus;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .BLKSZ(1)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
-
-	.conf_str(CONF_STR),
 
 	.buttons(buttons),
 	.status(status),
@@ -356,6 +347,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_wait(ioctl_wait),
 
 	.sd_lba(sd_lba),
+	.sd_blk_cnt(sd_blk_cnt),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
@@ -365,6 +357,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.sd_buff_wr(sd_buff_wr),
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
+	.img_size(img_size),
 
 	.joystick_0(joya),
 	.joystick_1(joyb)
@@ -434,7 +427,7 @@ gen_dpram #(16) main_ram
 	.data_a(dl_data),
 	.wren_a(dl_wr),
 
-	.clock_b(clk_c16),
+	.clock_b(clk_sys),
 	.address_b(c16_addr),
 	.data_b(c16_dout),
 	.wren_b(ram_we),
@@ -443,7 +436,7 @@ gen_dpram #(16) main_ram
 );
 
 reg ram_we;
-always @(posedge clk_c16) begin
+always @(posedge clk_sys) begin
 	reg old_cs;
 	ram_we <= 0;
 	
@@ -465,7 +458,7 @@ gen_rom #("rtl/roms/c16_kernal.mif") kernal0
 	.data(ioctl_dout),
 	.wren(ioctl_wr && (ioctl_addr[24:14]==1) && load_rom),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(kernal0_dout),
 	.cs(~cs1 && (!romh || kern) && ~status[6])
@@ -476,7 +469,7 @@ gen_rom #("rtl/roms/c16_kernal.mif") kernal1
 (
 	.wrclock(clk_sys),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(kernal1_dout),
 	.cs(~cs1 && (!romh || kern) && status[6])
@@ -491,7 +484,7 @@ gen_rom #("rtl/roms/c16_basic.mif") basic
 	.data(ioctl_dout),
 	.wren(ioctl_wr && (ioctl_addr[24:14]==2) && load_rom),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(basic_dout),
 	.cs(~cs0 && !roml)
@@ -506,7 +499,7 @@ gen_rom #("rtl/roms/3-plus-1_low.mif") funcl
 	.data(ioctl_dout),
 	.wren(ioctl_wr && (ioctl_addr[24:14]==3) && load_rom),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(fl_dout),
 	.cs(~cs0 && roml==2)
@@ -521,7 +514,7 @@ gen_rom #("rtl/roms/3-plus-1_high.mif") funch
 	.data(ioctl_dout),
 	.wren(ioctl_wr && (ioctl_addr[24:14]==4) && load_rom),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(fh_dout),
 	.cs(~cs1 && romh==2 && ~kern)
@@ -536,7 +529,7 @@ gen_rom cart_l
 	.data(ioctl_dout),
 	.wren(ioctl_wr && (ioctl_addr[24:14]==0) && load_crt),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(cartl_dout),
 	.cs(~cs0 && cartl && roml==1)
@@ -551,7 +544,7 @@ gen_rom cart_h
 	.data(ioctl_dout),
 	.wren(ioctl_wr && (ioctl_addr[24:14]==1) && load_crt),
 
-	.rdclock(clk_c16),
+	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(carth_dout),
 	.cs(~cs1 && carth && romh==1 && ~kern)
@@ -568,7 +561,7 @@ end
 wire kern = (c16_addr[15:8]==8'hFC);
 
 reg [1:0] roml, romh;
-always @(posedge clk_c16) begin
+always @(posedge clk_sys) begin
 	reg old_cs;
 
 	old_cs <= cs_io;
@@ -589,7 +582,7 @@ wire  [7:0] c16_din = ram_dout & kernal0_dout & kernal1_dout & basic_dout & fh_d
 wire        cs_ram,cs0,cs1,cs_io;
 C16 c16
 (
-	.CLK28   ( clk_c16 ), // NTSC 28.636299, PAL 28.384615
+	.CLK28   ( clk_sys ), // NTSC 28.636299, PAL 28.384615
 	.RESET   ( reset ),
 	.WAIT    ( 0 ),
 	.PAL     ( pal ),
@@ -653,8 +646,6 @@ wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
 
 assign VGA_F1 = 0;
 assign VGA_SL = sl[1:0];
-
-assign CLK_VIDEO = clk_sys;
 
 reg ce_vid;
 always @(posedge CLK_VIDEO) begin
@@ -753,21 +744,30 @@ wire led_disk;
 wire c1541_iec_data_o;
 wire c1541_iec_clk_o;
 
-c1541_sd c1541_sd
+c1541_multi #(.PARPORT(0), .DUALROM(1), .DRIVES(1)) c1541
 (
-	.clk_c1541(clk_sys & ce_c1541),
+	.clk(clk_sys),
+	.reset(c16_iec_reset_o),
+	.ce(ce_c1541),
+
+	.img_mounted(img_mounted),
+	.img_readonly(img_readonly),
+	.img_size(img_size),
+
+	.gcr_mode(1),
+
+	.led(led_disk),
+
+	.iec_atn_i(c16_iec_atn_o),
+	.iec_data_i(c16_iec_data_o),
+	.iec_clk_i(c16_iec_clk_o),
+	.iec_data_o(c1541_iec_data_o),
+	.iec_clk_o(c1541_iec_clk_o),
+
 	.clk_sys(clk_sys),
 
-	.rom_addr(ioctl_addr[13:0]),
-	.rom_data(ioctl_dout),
-	.rom_wr(ioctl_wr && (ioctl_addr[24:14] == 0) && load_rom),
-	.rom_std(status[6]),
-
-   .disk_change(img_mounted ),
-	.disk_readonly(img_readonly ),
-   .led(led_disk),
-
 	.sd_lba(sd_lba),
+	.sd_blk_cnt(sd_blk_cnt),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
@@ -775,13 +775,11 @@ c1541_sd c1541_sd
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
 	.sd_buff_wr(sd_buff_wr),
-
-	.iec_reset_i(c16_iec_reset_o),
-	.iec_atn_i(c16_iec_atn_o),
-	.iec_data_i(c16_iec_data_o),
-	.iec_clk_i(c16_iec_clk_o),
-	.iec_data_o(c1541_iec_data_o),
-	.iec_clk_o(c1541_iec_clk_o)
+	
+	.rom_addr(ioctl_addr[13:0]),
+	.rom_data(ioctl_dout),
+	.rom_wr(ioctl_wr && (ioctl_addr[24:14] == 0) && load_rom),
+	.rom_std(status[6])
 );
 
 reg ce_c1541;
@@ -793,10 +791,10 @@ always @(negedge clk_sys) begin
 	pald0 <= c16_pal;
 	pald1 <= pald0;
 
-	msum <= pald1 ? 56750336 : 57272720;
+	msum <= pald1 ? 28375168 : 28636360;
 
 	ce_c1541 <= 0;
-	sum = sum + 32000000;
+	sum = sum + 16000000;
 	if(sum >= msum) begin
 		sum = sum - msum;
 		ce_c1541 <= 1;
@@ -853,7 +851,7 @@ wire       cass_sense;
 wire       key_play;
 reg        tap_autoplay = 0;
 
-always @(posedge clk_c16) begin
+always @(posedge clk_sys) begin
 	reg tap_cycle = 0;
 
 	if(tap_reset) begin
@@ -888,7 +886,7 @@ always @(posedge clk_c16) begin
 end
 
 reg [26:0] act_cnt;
-always @(posedge clk_c16) act_cnt <= act_cnt + (cass_sense ? 4'd1 : 4'd8);
+always @(posedge clk_sys) act_cnt <= act_cnt + (cass_sense ? 4'd1 : 4'd8);
 wire tape_led = tap_loaded && (act_cnt[26] ? ((cass_sense | ~cass_motor) && act_cnt[25:18] > act_cnt[7:0]) : act_cnt[25:18] <= act_cnt[7:0]);
 
 wire cass_motor;
@@ -898,7 +896,7 @@ wire cass_write;
 
 c1530 c1530
 (
-	.clk32(clk_c16),
+	.clk32(clk_sys),
 	.restart_tape(tap_reset),
 	
 	.wav_mode(0),
@@ -919,7 +917,7 @@ c1530 c1530
 );
 
 wire tape_adc, tape_adc_act;
-ltc2308_tape #(.CLK_RATE(56750336)) ltc2308_tape
+ltc2308_tape #(.CLK_RATE(28375168)) ltc2308_tape
 (
   .clk(clk_sys),
   .ADC_BUS(ADC_BUS),

@@ -10,6 +10,9 @@ module  pll_0002(
 	// interface 'outclk0'
 	output wire outclk_0,
 
+	// interface 'outclk1'
+	output wire outclk_1,
+
 	// interface 'locked'
 	output wire locked,
 
@@ -26,11 +29,11 @@ module  pll_0002(
 		.pll_fractional_cout(32),
 		.pll_dsm_out_sel("1st_order"),
 		.operation_mode("direct"),
-		.number_of_clocks(1),
-		.output_clock_frequency0("56.750336 MHz"),
+		.number_of_clocks(2),
+		.output_clock_frequency0("28.375168 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
-		.output_clock_frequency1("0 MHz"),
+		.output_clock_frequency1("56.750336 MHz"),
 		.phase_shift1("0 ps"),
 		.duty_cycle1(50),
 		.output_clock_frequency2("0 MHz"),
@@ -91,19 +94,19 @@ module  pll_0002(
 		.n_cnt_bypass_en("true"),
 		.m_cnt_odd_div_duty_en("true"),
 		.n_cnt_odd_div_duty_en("false"),
-		.c_cnt_hi_div0(4),
-		.c_cnt_lo_div0(4),
+		.c_cnt_hi_div0(8),
+		.c_cnt_lo_div0(8),
 		.c_cnt_prst0(1),
 		.c_cnt_ph_mux_prst0(0),
 		.c_cnt_in_src0("ph_mux_clk"),
 		.c_cnt_bypass_en0("false"),
 		.c_cnt_odd_div_duty_en0("false"),
-		.c_cnt_hi_div1(1),
-		.c_cnt_lo_div1(1),
+		.c_cnt_hi_div1(4),
+		.c_cnt_lo_div1(4),
 		.c_cnt_prst1(1),
 		.c_cnt_ph_mux_prst1(0),
 		.c_cnt_in_src1("ph_mux_clk"),
-		.c_cnt_bypass_en1("true"),
+		.c_cnt_bypass_en1("false"),
 		.c_cnt_odd_div_duty_en1("false"),
 		.c_cnt_hi_div2(1),
 		.c_cnt_lo_div2(1),
@@ -229,7 +232,7 @@ module  pll_0002(
 		.pll_slf_rst("true")
 	) altera_pll_i (
 		.rst	(rst),
-		.outclk	({outclk_0}),
+		.outclk	({outclk_1, outclk_0}),
 		.locked	(locked),
 		.reconfig_to_pll	(reconfig_to_pll),
 		.fboutclk	( ),

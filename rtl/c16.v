@@ -270,32 +270,22 @@ assign c16_data=cpu_data&ted_data&DIN&keyport_data&sid_data; // C16 data bus
 assign ADDR=c16_addr;
 assign DOUT=cpu_data;
 
-reg iec_data;
-reg iec_clk;
-always @(posedge CLK28) begin
-	reg iec_data_d1,iec_data_d2; 
-	reg iec_clk_d1,iec_clk_d2;
-
-	iec_data_d1<=IEC_DATAIN;
-	iec_data_d2<=iec_data_d1;
-	iec_data   <=iec_data_d2; 
-
-	iec_clk_d1 <=IEC_CLKIN;
-	iec_clk_d2 <=iec_clk_d1;
-	iec_clk    <=iec_clk_d2;
-end
+assign {port_in[5],port_in[3:0]} = {port_out[5],port_out[3:0]};
 
 // connect IEC bus
-assign {port_in[5],port_in[3:0]}=0;
-assign IEC_DATAOUT=~port_out[0];
-assign port_in[7]=iec_data & ~port_out[0];
-assign IEC_CLKOUT=~port_out[1];
-assign port_in[6]=iec_clk & ~port_out[1];
-assign IEC_ATNOUT=~port_out[2];
-assign IEC_RESET=sreset;
+wire iec_data, iec_clk;
+iecdrv_sync dat_sync(CLK28, IEC_DATAIN, iec_data);
+iecdrv_sync clk_sync(CLK28, IEC_CLKIN,  iec_clk);
 
-assign cass_mtr = port_out[3];
-assign port_in[4]= cass_in;
-assign cass_out = port_out[6];
+assign IEC_DATAOUT = ~port_out[0];
+assign IEC_CLKOUT  = ~port_out[1];
+assign IEC_ATNOUT  = ~port_out[2];
+assign port_in[6]  = ~port_out[1] & iec_clk;
+assign port_in[7]  = ~port_out[0] & iec_data;
+assign IEC_RESET   = sreset;
+
+assign port_in[4]  = cass_in;
+assign cass_mtr    = port_out[3];
+assign cass_out    = port_out[6];
 
 endmodule
