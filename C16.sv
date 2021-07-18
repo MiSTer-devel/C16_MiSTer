@@ -173,12 +173,11 @@ module emu
 	input         OSD_STATUS
 );
 
-assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
  
-assign LED_USER  = ioctl_download | led_disk | tape_led;
+assign LED_USER  = ioctl_download | |led_disk | tape_led;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
@@ -190,12 +189,13 @@ assign HDMI_FREEZE = 0;
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X XXXXXXXXX  XX XXXXX  XXXX
+// X XXXXXXXXXX XX XXXXX  XXXX
 
 `include "build_id.v" 
 parameter CONF_STR = {
 	"C16;;",
-	"S0,D64G64,Mount Disk;",
+	"S0,D64G64,Mount #8;",
+	"S1,D64G64,Mount #9;",
 	"-;",
 	"h4F1,PRGTAPBIN,Load;",
 	"H4F1,PRGTAP,Load;",
@@ -205,6 +205,8 @@ parameter CONF_STR = {
 	"h3OH,Tape Sound,Off,On;",
 	"h3OA,Tape Autoplay,Yes,No;",
 	"h3-;",
+	"O5,Joysticks swap,No,Yes;",
+	"-;",
 	"OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O78,TV Standard,from Kernal,Force PAL,Force NTSC;",
@@ -213,8 +215,7 @@ parameter CONF_STR = {
 	"OPQ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"ODE,SID card,Disabled,6581,8580;",
-	"-;",
-	"O5,Joysticks swap,No,Yes;",
+	"OB,External IEC,Disabled,Enabled;",
 	"-;",
 	"O9,Model,C16,Plus/4;",
 	"D0O6,Kernal,Loaded,Original;",
@@ -311,22 +312,22 @@ wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
 wire        forced_scandoubler;
 
-wire [31:0] sd_lba[1];
-wire  [5:0] sd_blk_cnt[1];
-wire        sd_rd;
-wire        sd_wr;
-wire        sd_ack;
+wire [31:0] sd_lba[2];
+wire  [5:0] sd_blk_cnt[2];
+wire  [1:0] sd_rd;
+wire  [1:0] sd_wr;
+wire  [1:0] sd_ack;
 wire [13:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout;
-wire  [7:0] sd_buff_din[1];
+wire  [7:0] sd_buff_din[2];
 wire        sd_buff_wr;
-wire        img_mounted;
+wire  [1:0] img_mounted;
 wire        img_readonly;
 wire [31:0] img_size;
 reg         ioctl_wait = 0;
 wire [21:0] gamma_bus;
 
-hps_io #(.CONF_STR(CONF_STR), .BLKSZ(1)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(2), .BLKSZ(1)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -621,8 +622,8 @@ C16 c16
 	.sid_type( status[14:13] ),
 	.sound   ( AUDIO_L ),
 
-	.IEC_DATAIN  ( c1541_iec_data_o ),
-	.IEC_CLKIN   ( c1541_iec_clk_o  ),
+	.IEC_DATAIN  ( c1541_iec_data_o & ext_iec_data ),
+	.IEC_CLKIN   ( c1541_iec_clk_o  & ext_iec_clk  ),
 	.IEC_ATNOUT  ( c16_iec_atn_o    ),
 	.IEC_DATAOUT ( c16_iec_data_o   ),
 	.IEC_CLKOUT  ( c16_iec_clk_o    ),
@@ -739,28 +740,28 @@ video_mixer #(456, 1, 1) mixer
 
 ///////////////////////////////////////////////////
 
-wire led_disk;
+wire [1:0] led_disk;
 
 wire c1541_iec_data_o;
 wire c1541_iec_clk_o;
 
-c1541_multi #(.PARPORT(0), .DUALROM(1), .DRIVES(1)) c1541
+c1541_multi #(.PARPORT(0)) c1541
 (
 	.clk(clk_sys),
-	.reset(c16_iec_reset_o),
+	.reset({c16_iec_reset_o | ~drive_mounted[1], c16_iec_reset_o | ~drive_mounted[0]}),
 	.ce(ce_c1541),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
 
-	.gcr_mode(1),
+	.gcr_mode(2'b11),
 
 	.led(led_disk),
 
 	.iec_atn_i(c16_iec_atn_o),
-	.iec_data_i(c16_iec_data_o),
-	.iec_clk_i(c16_iec_clk_o),
+	.iec_data_i(c16_iec_data_o & ext_iec_data),
+	.iec_clk_i(c16_iec_clk_o & ext_iec_clk),
 	.iec_data_o(c1541_iec_data_o),
 	.iec_clk_o(c1541_iec_clk_o),
 
@@ -782,6 +783,12 @@ c1541_multi #(.PARPORT(0), .DUALROM(1), .DRIVES(1)) c1541
 	.rom_std(status[6])
 );
 
+reg [1:0] drive_mounted = 0;
+always @(posedge clk_sys) begin 
+	if(img_mounted[0]) drive_mounted[0] <= |img_size;
+	if(img_mounted[1]) drive_mounted[1] <= |img_size;
+end
+
 reg ce_c1541;
 always @(negedge clk_sys) begin
 	reg pald0, pald1;
@@ -800,6 +807,18 @@ always @(negedge clk_sys) begin
 		ce_c1541 <= 1;
 	end
 end
+
+wire ext_iec_en   = status[11];
+wire ext_iec_clk  = USER_IN[2] | ~ext_iec_en;
+wire ext_iec_data = USER_IN[4] | ~ext_iec_en;
+
+assign USER_OUT[0] = 1;
+assign USER_OUT[1] = 1;
+assign USER_OUT[2] = (c16_iec_clk_o & c1541_iec_clk_o)  | ~ext_iec_en;
+assign USER_OUT[3] = ~c16_iec_reset_o | ~ext_iec_en;
+assign USER_OUT[4] = (c16_iec_data_o & c1541_iec_data_o) | ~ext_iec_en;
+assign USER_OUT[5] = c16_iec_atn_o | ~ext_iec_en;
+assign USER_OUT[6] = 1;
 
 
 ///////////////////////////////////////////////////
