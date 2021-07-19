@@ -380,13 +380,17 @@ reg [15:0] dl_addr;
 reg  [7:0] dl_data;
 reg        dl_wr;
 reg        model;
+reg        romv;
 
 always @(posedge clk_sys) begin
 	reg        old_download = 0;
 	reg  [3:0] state = 0;
 	reg [15:0] addr;
 
-	if(reset) model <= status[9];
+	if(reset) begin
+		model <= status[9];
+		romv  <= status[6];
+	end
 
 	dl_wr <= 0;
 	old_download <= ioctl_download;
@@ -462,7 +466,7 @@ gen_rom #("rtl/roms/c16_kernal.mif") kernal0
 	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(kernal0_dout),
-	.cs(~cs1 && (!romh || kern) && ~status[6])
+	.cs(~cs1 && (!romh || kern) && ~romv)
 );
 
 wire [7:0] kernal1_dout;
@@ -473,7 +477,7 @@ gen_rom #("rtl/roms/c16_kernal.mif") kernal1
 	.rdclock(clk_sys),
 	.rdaddress(c16_addr[13:0]),
 	.q(kernal1_dout),
-	.cs(~cs1 && (!romh || kern) && status[6])
+	.cs(~cs1 && (!romh || kern) && romv)
 );
 
 // Basic rom
@@ -780,7 +784,7 @@ c1541_multi #(.PARPORT(0)) c1541
 	.rom_addr(ioctl_addr[13:0]),
 	.rom_data(ioctl_dout),
 	.rom_wr(ioctl_wr && (ioctl_addr[24:14] == 0) && load_rom),
-	.rom_std(status[6])
+	.rom_std(romv)
 );
 
 reg [1:0] drive_mounted = 0;
