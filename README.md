@@ -14,8 +14,9 @@ This port has the following changes and enhancements:
 - Joystick with swap function
 - Reset procedure has been improved and should be stable now.
 
-ROMs can be loaded from SD card or from the C16 folder. Put boot.rom into C16 folder.  
-Content of boot.rom: C1541 + kernal + basic + func_low + func_high  
+Multiple alternative Kernal ROMs can be loaded from SD card. Put for example kernal.rom, kernal2.rom, jiffy.rom, etc. into C16 folder or subfolder.
+
+Content of kernal.rom: C1541 + kernal + basic + func_low + func_high  
 Each part is 16KB.   
 You can load only part of a whole ROM, for example only C1541+kernal (JiffyDOS).
 
