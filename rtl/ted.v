@@ -663,7 +663,7 @@ always @(posedge clk)					// Character Position Reload register $FF1A/$FF1B
 			CharPosReload[7:0]<=data_in;
 	else if(hpos_392 & videoline==EOS)		// clear character position reload at last line
 			CharPosReload<=0;
-	else if(CharPosLatch & latch_charposition & enabledisplay)				// latch character position at 7th line of a character row if videocunter was latched in previous 6th row
+	else if(CharPosLatch & latch_charposition & VertSubActive)				// latch character position at 7th line of a character row if videocunter was latched in previous 6th row
 			CharPosReload<=CharPosition;
 	end
 
