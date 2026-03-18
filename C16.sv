@@ -291,16 +291,16 @@ gen_dpram #(16) main_ram
 	.data_b(c16_dout),
 	.wren_b(ram_we),
 	.q_b(ram_dout),
-	.cs_b(~cs_ram)
+	.cs_b(~c16_cas & cs0 & cs1)
 );
 
 reg ram_we;
 always @(posedge clk_sys) begin
-	reg old_cs;
+	reg old_cas;
 	ram_we <= 0;
-	
-	old_cs <= cs_ram;
-	if(old_cs & ~cs_ram) ram_we <= ~c16_rnw;
+
+	old_cas <= c16_cas;
+	if(old_cas & ~c16_cas) ram_we <= ~c16_rnw;
 end
 
 /////////////////   ROM   /////////////////////////
@@ -421,12 +421,12 @@ wire kern = (c16_addr[15:8]==8'hFC);
 
 reg [1:0] roml, romh;
 always @(posedge clk_sys) begin
-	reg old_cs;
+	reg old_mux;
 
-	old_cs <= cs_io;
+	old_mux <= c16_mux;
 
 	if(reset) {romh,roml} <= 0;
-	else if(model && old_cs && ~cs_io && ~c16_rnw && c16_addr[15:4] == 12'hFDD) {romh,roml} <= c16_addr[3:0];
+	else if(model && old_mux && ~c16_mux && ~c16_rnw && c16_addr[15:4] == 12'hFDD) {romh,roml} <= c16_addr[3:0];
 end
 
 ///////////////////////////////////////////////////
@@ -436,16 +436,10 @@ wire [15:0] c16_addr;
 wire        c16_rnw;
 wire        pal;
 
-wire  [7:0] c16_din = ram_dout & kernal0_dout & kernal1_dout & basic_dout & fh_dout & fl_dout & cartl_dout & carth_dout & cass_dout & openbus_data;
-
-wire       openbus_sel  = c16_addr[15:5] == {8'hFD, 3'b111};
-wire [7:0] openbus_data = openbus_sel ? c16_datalatch : 8'hff;
-
-reg [7:0] c16_datalatch;
-always @(posedge clk_sys) c16_datalatch<=c16_din;
+wire  [7:0] c16_din = ram_dout & kernal0_dout & kernal1_dout & basic_dout & fh_dout & fl_dout & cartl_dout & carth_dout & cass_dout;
 
 
-wire        cs_ram,cs0,cs1,cs_io;
+wire        c16_mux,c16_ras,c16_cas,cs0,cs1;
 C16 c16
 (
 	.CLK28   ( clk_sys ), // NTSC 28.636299, PAL 28.384615
@@ -468,10 +462,11 @@ C16 c16
 	.ADDR    ( c16_addr ),
 	.DOUT    ( c16_dout ),
 	.DIN     ( c16_din ),
-	.CS_RAM  ( cs_ram ),
+	.MUX     ( c16_mux ),
+	.RAS     ( c16_ras ),
+	.CAS     ( c16_cas ),
 	.CS0     ( cs0 ),
 	.CS1     ( cs1 ),
-	.CS_IO   ( cs_io ),
 
 	.cass_mtr( cass_motor ),
 	.cass_in ( tape_adc_act ? ~tape_adc : cass_read ),
@@ -719,7 +714,8 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire [7:0] cass_dout = {5'b11111, cs_io | (c16_addr[8:4] != 'h11) | (~tape_adc_act & cass_sense), 2'b11};
+wire       cass_io_sel = (c16_addr[15:4] == 12'hFD1);
+wire [7:0] cass_dout = {5'b11111, ~cass_io_sel | (~tape_adc_act & cass_sense), 2'b11};
 
 reg        tap_rd;
 wire       tap_finish;
