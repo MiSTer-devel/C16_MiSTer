@@ -76,8 +76,20 @@ module C16
 	output        IEC_ATNOUT,
 	output        IEC_RESET,
 
-	output [15:0] sound,
-	input   [1:0] sid_type,
+	output [15:0] audio_l,
+	output [15:0] audio_r,
+	input         sid_enabled,
+	input   [1:0] sid_ver,
+	input   [3:0] sid_cfg,
+	input   [1:0] sid_filter,
+	input  [12:0] sid_fc_off_l,
+	input  [12:0] sid_fc_off_r,
+	input         sid_digifix,
+	input         sid_mode,
+
+	input  [11:0] sid_ld_addr,
+	input  [15:0] sid_ld_data,
+	input         sid_ld_wr,
 
 	output        PAL
 );
@@ -140,35 +152,72 @@ always @(posedge CLK28)	begin
 	ce_sid <= !div;
 end
 
-// valid adresses for SID: FD40-FD5F and FE80-FE9F
-wire cs_sid = (c16_addr[15:5] == 'b1111_1101_010) || (c16_addr[15:5] == 'b1111_1110_100);
+// valid addresses for SID: FD40-FD5F and FE80-FE9F
+// Mirror: both SIDs at both addresses, Split: left FD40, right FE80
+wire fd40_sel = (c16_addr[15:5] == 11'b11111101010) & sid_enabled;
+wire fe80_sel = (c16_addr[15:5] == 11'b11111110100) & sid_enabled;
+wire sid_sel  = fd40_sel | fe80_sel;
+
+wire sid_sel_l = sid_mode ? fd40_sel : sid_sel;
+wire sid_sel_r = sid_mode ? fe80_sel : sid_sel;
 
 wire  [7:0] sid_dout;
-wire [17:0] sid_audio;
-sid_top #(.MULTI_FILTERS(0), .DUAL(0)) sid
+wire [17:0] sid_audio_l;
+wire [17:0] sid_audio_r;
+
+sid_top sid
 (
 	.reset(sreset),
 	.clk(CLK28),
 	.ce_1m(ce_sid),
-
-	.we(~RnW & cs_sid),
+	
+	.cs({sid_sel_r, sid_sel_l}),
+	.we(~RnW & sid_sel),
 	.addr(c16_addr[4:0]),
-	.data_in(c16_data),
+	.data_in(cpu_data),
 	.data_out(sid_dout),
 
-	.audio_l(sid_audio),
+	.audio_l(sid_audio_l),
+	.audio_r(sid_audio_r),
 
-	.filter_en(1),
-	.mode(sid_type[1]),
-	.cfg(0)
+	.ext_in_l({sid_ver[0] & sid_digifix, 17'd0}),
+	.ext_in_r({sid_ver[1] & sid_digifix, 17'd0}),
+
+	.filter_en(sid_filter),
+	.mode(sid_ver),
+	.cfg(sid_cfg),
+
+	.fc_offset_l(sid_fc_off_l),
+	.fc_offset_r(sid_fc_off_r),
+
+	.ld_clk(CLK28),
+	.ld_data(sid_ld_data),
+	.ld_addr(sid_ld_addr),
+	.ld_wr(sid_ld_wr)
 );
 
-wire  [7:0] sid_data  = (RnW & cs_sid) ? sid_dout : 8'hFF;
+wire  [7:0] sid_data = (RnW & sid_sel) ? sid_dout : 8'hFF;
 
 // -----------------------------------------------------------------------
 
-wire [16:0] mix_audio = (sid_type ? {sid_audio[17], sid_audio[17:2]} : 17'd0) + {ted_digi[15], ted_digi} + {cass_aud, 10'd0};
-assign sound = ($signed(mix_audio) > $signed(17'd32767)) ? 16'd32767 : ($signed(mix_audio) < $signed(-17'd32768)) ? $signed(-16'd32768) : mix_audio[15:0];
+reg [15:0] alo, aro;
+always @(posedge CLK28) begin
+	reg [17:0] alm, arm;
+
+	alm <= {{2{ted_digi[15]}}, ted_digi}
+	     + (sid_enabled ? {{2{sid_audio_l[17]}}, sid_audio_l[17:2]} : 18'd0)
+	     + {cass_aud, 10'd0};
+
+	arm <= {{2{ted_digi[15]}}, ted_digi}
+	     + (sid_enabled ? {{2{sid_audio_r[17]}}, sid_audio_r[17:2]} : 18'd0)
+	     + {cass_aud, 10'd0};
+
+	alo <= (&alm[17:15] | ~|alm[17:15]) ? alm[15:0] : {alm[17], {15{~alm[17]}}};
+	aro <= (&arm[17:15] | ~|arm[17:15]) ? arm[15:0] : {arm[17], {15{~arm[17]}}};
+end
+
+assign audio_l = alo;
+assign audio_r = aro;
 
 // -----------------------------------------------------------------------
 
