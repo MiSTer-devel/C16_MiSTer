@@ -15,10 +15,10 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 //
-// Create Date:   18/12/2013 - 31/03/2016
+// Create Date:   18/12/2013 - 01/09/2026
 // Design Name:   MOS 8360 video chip
 // Module Name:   ted.v 
-// Version:       1.8
+// Version:       1.9
 // Project Name:  FPGATED
 // Description:   Cycle exact MOS 8360 TED display chip
 //
@@ -43,6 +43,32 @@
 // 1.6.2  29/10/2025       $FF06 and $FF07 write fixes to happen correctly at single cycle end (delayed if it happens at double cycle end)
 // 1.7    08/11/2025       Timer2 bug fixed. False Idols demo works perfectly now! 
 // 1.8    13/12/2025       DMA counter (videocounter) reset position fixed (was line 311, now line 205). TED Vibes demos works now
+// 1.8.1   22/2/2026       xscroll and yscroll behaviour reverted to v1.6.1 (Fixes "A trip" demo)
+// 1.9     25/8/2026       Consolidated release integrating fixes originally developed in builds 1.8.2-1.8.4 by DJ n-ICE (djnice).
+//                         All issues were identified using emulator behaviour (plus4emu, yapesdl) and AI-assisted analysis. 
+//
+//                         Character Position Reload Fixes (from dev builds 1.8.2)
+//                          - Reload register is now rebuilt from two write latches instead of updating halves in place.
+//                            Prevents character row latch leakage into the unwritten half.
+//                          - Writes to $FF1A/$FF1B occurring in the same cycle as the character row latch now take priority.
+//                            Previously, latch timing caused the written value to be discarded, shifting the reload by one row per line.
+//                          Fixes the Rocket Science letter effect (the bands torn into stripes).
+//
+//                          Side Border & Bitmap Behaviour Adjustments (from dev builds 1.8.3)
+//                          Derived from emulator behaviour; no visible issues were known to depend on these, but they improve correctness:
+//                          - Side border flip-flop replaced with a single CSEL-dependent set/reset mechanism.
+//                            Allows mid-line CSEL changes to skip reset and open the side border.
+//                          - Bitmap shift register now loads zeroes outside the character window.
+//                            Prevents opened side borders from repeating the last fetched byte.
+//
+//                          Character Buffer Reload Correction on Badlines (from dev builds 1.8.4)
+//                           - char_buf is no longer reloaded on a badline that has no character DMA following it.
+//                             Badlines read the video matrix twice:
+//                               o Badline: colour from base+0
+//                               o Next line: luminance from base+$400
+//                             plus4emu and yapesdl only load luminance on the second read; previous FPGATED core incorrectly loaded it on
+//                             every badline.
+//                             Fixes Rocket Science colour scenes (e.g swirling door), which forces an extra badline every 8 raster lines. 
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -154,6 +180,10 @@ reg clkmode=1'b0;																					// $FF13 bit 1, force single clock mode
 reg [4:0] vmbase=5'b0;																				// $FF14 bits 3-7, Video RAM base address register 
 reg [6:0] bgcolor0=7'b0,bgcolor1=7'b0,bgcolor2=7'b0,bgcolor3=7'b0,excolor=7'b0;	                    // $FF15-19 color registers
 reg [9:0] CharPosReload=10'b0;																	    // $FF1A/B, Character Position Reload increments by 40 for each character row completed
+reg [1:0] CharPosRegHi=2'b0;										// $FF1A/$FF1B as the CPU last wrote them. The reload register above is rebuilt from
+reg [7:0] CharPosRegLo=8'b0;										// these two on every write, so a character row latch that lands between a $FF1B and a
+reg charpos_copyback=1'b0;											// $FF1A write cannot leak into the half the CPU did not write. See the write block below.
+reg charpos_write_d=1'b0;											// a $FF1A/$FF1B write in the clock before the character row latch
 reg [8:0] vcounter=9'b0;							   											    // $FF1C/D, Vertical line counter
 reg [8:0] hcounter=9'b0;							   											    // $FF1E, Horizontal dot counter. In real TED it is 11bit. Counts from 0 to 455
 reg [4:0] FlashCount=5'b0;																			// $FF1F bits 3-6, Flash counter's 5th bit is the actual flash state and is not user accessible
@@ -220,7 +250,7 @@ reg [7:0] nextpixels=8'b0,currentpixels=8'b0,waitingpixels=8'b0;
 reg [7:0] pixelshiftreg=8'b0;							// This register contains pixel data and shifts it during rendering
 //reg [5:0] shiftcount=6'b0;							// Used by the videomatrix shift register to count number of shifts
 reg verticalscreen=1'b0;								// Signals which lines are in screen area (top/bottom border control)
-reg widescreen=1'b0,narrowscreen=1'b0;				    // Signals horizontal screen area (left/right border control)
+reg sideborder=1'b0;								    // Side border flip-flop. Signals horizontal screen area (left/right border control)
 reg videoshift=1'b0;								    // Signals when video shift register is active
 reg nextcursor=1'b0,currentcursor=1'b0,waitingcursor=1'b0;  // cursor state internal storage for 3 signle clock cycles
 
@@ -601,6 +631,12 @@ always @(posedge clk)
 		badline2<=0;*/
 	end
 
+always @(posedge clk)										// synchronize yscroll changes to single cycle border
+	begin
+	if(single_cycle_end)
+		yscroll_reg<=yscroll;
+	end
+
 
 //---------------------------------------------------------------------------
 // EnableDisplay signal
@@ -660,17 +696,72 @@ always @(posedge clk)
 		end
 	end
 
+// $FF1A and $FF1B are write latches of their own, and the reload register is rebuilt from
+// both of them whenever either one is written - it is not two halves of one register that
+// a write updates in place. The difference only shows when the character row latch below
+// fires in the same character row as a $FF1A/$FF1B write: with an in place update the
+// latched value survives in the half the CPU did not write this line, which is wrong.
+// Rocket Science depends on this. Its per line effect writes $FF1B at hcounter 232 and
+// $FF1A at 296 - the latch position - and forces $FF1F to 6 on some lines, which arms the
+// latch. Measured against plus4emu on the demo's own frames (tb/rs_replay.cpp): with the
+// in place update ted.v used a reload that was whole character rows plus 16 characters
+// away from the value the program wrote, on 11 to 51 of the 196 lines the effect covers,
+// so those bands were fetched from the wrong place. plus4emu keeps the written bytes in
+// tedRegisters[$1A]/[$1B] and rebuilds characterPositionReload from them on every write.
 always @(posedge clk)					// Character Position Reload register $FF1A/$FF1B
 	begin
 	if(tedwrite & addr_in[5:0]==CHARPOSRELOADHI)
-			CharPosReload[9:8]<=data_in[1:0];
+			CharPosReload<={data_in[1:0],CharPosRegLo};
 	else if(tedwrite & addr_in[5:0]==CHARPOSRELOADLO)
-			CharPosReload[7:0]<=data_in;
+			CharPosReload<={CharPosRegHi,data_in};
 	else if(hpos_392 & videoline==EOS)		            // clear character position reload at last line
 			CharPosReload<=0;
-	else if(CharPosLatch & latch_charposition & VertSubActive)				// latch character position at 7th line of a character row if videocounter was latched in previous 6th row
+	else if(CharPosLatch & latch_charposition & VertSubActive & ~charpos_write_d)				// latch character position at 7th line of a character row if videocounter was latched in previous 6th row
 			CharPosReload<=CharPosition;
 	end
+
+// The latched reload is copied back into the two write latches one single clock cycle
+// later, which is the cycle a CPU write started in the same cycle as the latch lands in.
+// A write in that cycle therefore still rebuilds the reload from what the program wrote,
+// and takes priority over the copy back; plus4emu does the same with its delayed
+// updateCharPosReloadRegisters event.
+always @(posedge clk)
+	begin
+	if(CharPosLatch & latch_charposition & VertSubActive & ~charpos_write_d)
+		charpos_copyback<=1;
+	else if(single_cycle_end)
+		charpos_copyback<=0;
+	end
+
+always @(posedge clk)					// $FF1A/$FF1B write latches
+	begin
+	if(tedwrite & addr_in[5:0]==CHARPOSRELOADHI)
+			CharPosRegHi<=data_in[1:0];
+	else if(tedwrite & addr_in[5:0]==CHARPOSRELOADLO)
+			CharPosRegLo<=data_in;
+	else if(hpos_392 & videoline==EOS)
+			{CharPosRegHi,CharPosRegLo}<=10'b0;
+	else if(charpos_copyback & single_cycle_end)
+			{CharPosRegHi,CharPosRegLo}<=CharPosReload;
+	end
+
+// A $FF1A/$FF1B write in the same cycle as the character row latch has to win. The real TED
+// applies the latch at the start of the videoColumn and the CPU's write at the end of the
+// same one: plus4emu schedules latchCharacterPosition at videoColumn 72 as a delayedEvents0
+// event, which is processed at the top of column 74, and runs the CPU afterwards in that
+// same column. Its log of every change of characterPositionReload shows the pair together,
+// latch first, write second, on every line of the effect:
+//     93 74 480 latch      93 74 440 write
+// In ted.v the two are one FPGA clock apart the other way round -- tedwrite lands at
+// cycle_end and latch_charposition is registered from the same edge, so it fires one clock
+// later and overwrites what the CPU just wrote. Measured with the core's own CPU
+// (sim/run_scene.sh -cprlog): CharPosReload 696 -> 440 by the write, then 440 -> 560 by the
+// latch, on every line Rocket Science sets $FF1F to 6 - so the reload ran away by 40 a line
+// and 18 of the 197 lines of the effect fetched their pixel data from the wrong address.
+// This holds the write off for exactly that one clock, so the latch skips the line the CPU
+// wrote in and nothing else changes.
+always @(posedge clk)
+	charpos_write_d<=tedwrite & (addr_in[5:0]==CHARPOSRELOADHI | addr_in[5:0]==CHARPOSRELOADLO);
 
 always @(posedge clk)									// Character Position counter (not user accessible)
 	begin
@@ -816,11 +907,7 @@ always @(posedge clk)
 		begin
 		if(inc_videocounter)
 			begin
-			if(badline) begin									// during badline1 load this buffer together with attribute buffer. Needed for FLI trick
-				char_buf[0]<=data_in;
-				nextchar<=char_buf[39];
-				end
-			else if(badline2) begin
+			if(badline2) begin
 				char_buf[0]<=data_in;
 				nextchar<=data_in;
 				end
@@ -998,19 +1085,18 @@ always @(posedge clk)							// 25/24 row select and top/bottom borders
 		end
 	end
 
+// In the real TED (like in the VIC-II) the left/right border is controlled by a SINGLE flip-flop
+// whose set and reset positions are selected by the CSEL bit at the moment of the comparison.
+// (yapesdl tedmem.cpp: beamx 16/18 set, beamx 94/96 reset -> hcounter 0/8 and 312/320.)
+// Two independent flip-flops (one per screen width) give the same picture for a static CSEL, but
+// they make it impossible to change CSEL inside the line so that the reset event is skipped,
+// which is exactly how demos open the side border.
 always @(posedge clk)							// 38/40 columns select and side borders
 	begin
-		if(enabledisplay & verticalscreen) 
-			begin 
-				if(hpos_320 & tick8)
-					widescreen<=0;
-				else if (hpos_0 & tick8)
-					widescreen<=1;
-				if(hpos_312 & tick8)
-					narrowscreen<=0;
-				else if (hpos_8 & tick8)
-					narrowscreen<=1;
-			end
+		if(tick8 & ((csel & hpos_320)|(~csel & hpos_312)))
+			sideborder<=0;
+		else if(tick8 & enabledisplay & verticalscreen & ((csel & hpos_0)|(~csel & hpos_8)))
+			sideborder<=1;
 	end
 
 	
@@ -1064,7 +1150,11 @@ always @(posedge clk)
         waitingpixels<=currentpixels;
         waitingcursor<=currentcursor;
         end
-    end	
+    else if(pre_cycle_end & phi)
+        waitingpixels<=8'b0;				// outside the character window the bitmap shift register is loaded with zeroes
+											// (plus4emu clears currentCharacter.bitmap_ when the shift register is disabled).
+											// Only visible when the side border is opened by changing CSEL inside the line.
+    end
 	
 assign cursor=(waitingcursor & ~FlashCount[4]);
 
@@ -1072,10 +1162,17 @@ assign cursor=(waitingcursor & ~FlashCount[4]);
 // Pixel Generator
 // Final screen is delayed by 1 pixel 
 //---------------------------------------------------------------------------
-
+always @(posedge clk)
+    begin
+    if (cycle_end)
+            begin
+            xscroll_reg<=xscroll;
+            end
+     end
+	
 always @(posedge clk)										// video pixel shift register
 	begin
-	if(videoshift | widescreen)								// shift register works only when beam is on wide screen area
+	if(videoshift | sideborder)								// shift register works only when beam is on the visible screen area
 		begin
 		if(tick8)									
 			begin
@@ -1102,7 +1199,7 @@ always @(posedge clk)										// video pixel shift register
 	end
 
 
-assign pixelscreen=(csel)?widescreen:narrowscreen;			// change between narrow and wide screens plus 1 pixel delay due to latch
+assign pixelscreen=sideborder;								// side border flip-flop state (narrow/wide selection is done by the flip-flop itself)
 
 
 assign multicolor= mcm & (ecm | pixelattr[3] | bmm);		// multicolor rendering is initiated when mcm=1 and either ecm,bmm or character attribute's 4th bit is 1
@@ -1401,12 +1498,11 @@ always @(posedge clk)
 							rsel<=data_in[3];
 							ecm_reg<=data_in[6];         // when write happens on non single cycle end then change is delayed in these registers until single cycle end
 							bmm_reg<=data_in[5];
-							yscroll_reg<=data_in[2:0];
+							yscroll<=data_in[2:0];
 							if(single_cycle_end)         // when write happens on single cycle end then change happens immediately
 							     begin						     
 							     ecm<=data_in[6];
 							     bmm<=data_in[5];
-							     yscroll<=data_in[2:0];
 							     end
 							end
 				CONTROL2:	// $FF07
@@ -1416,12 +1512,11 @@ always @(posedge clk)
 							csel<=data_in[3];
 							reverse_reg<=data_in[7];     // when write happens on non single cycle end then change is delayed in these registers until single cycle end
 							mcm_reg<=data_in[4];
-							xscroll_reg<=data_in[2:0];
+							xscroll<=data_in[2:0];
 							if(single_cycle_end)         // when write happens on single cycle end then change happens immediately
 							     begin
 							     reverse<=data_in[7];								
 							     mcm<=data_in[4];
-							     xscroll<=data_in[2:0];
 							     end		     
 							end
 				KEYLATCH:	// $FF08
@@ -1507,8 +1602,6 @@ always @(posedge clk)
 		endcase
 	else if (single_cycle_end)         // if there is no TED write at single cycle end, sync non single cycle writes to single cycle end
 	   begin
-	   xscroll<=xscroll_reg;
-	   yscroll<=yscroll_reg;
 	   ecm<=ecm_reg;
 	   bmm<=bmm_reg;
 	   reverse<=reverse_reg;
