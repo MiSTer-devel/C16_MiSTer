@@ -52,10 +52,11 @@ module C16
 	output [15:0] ADDR,
 	input   [7:0] DIN,
 	output  [7:0] DOUT,
-	output        CS_RAM,
+	output        MUX,
+	output        RAS,
+	output        CAS,
 	output        CS0,
 	output        CS1,
-	output        CS_IO,
 
 	output        cass_mtr,
 	input         cass_in,
@@ -84,11 +85,13 @@ module C16
 wire [15:0] c16_addr;
 wire [15:0] ted_addr;
 wire [15:0] cpu_addr;
-wire [7:0] c16_data,ted_data,ram_data,cpu_data,port_in,port_out,keyport_data;
+wire [7:0] c16_data,ted_data,cpu_data,port_in,port_out,keyport_data;
 wire [7:0] keyboard_row,kbus,kbus_kbd;
 wire [6:0] c16_color;
 wire cpuenable;
-wire aec,rdy;
+wire mux,ras,cas,aec,rdy;
+reg [7:0] c16_datalatch;
+reg [15:0] c16_addrlatch;
 wire keyboardio;
 reg sreset=1'b0;
 reg [23:0] resetcounter=24'b0;
@@ -116,6 +119,7 @@ mos8501 cpu
 	.data_out(cpu_data), 
 	.address(cpu_addr),
 	.rw(RnW),								// rw=high read, rw=low write
+	.gate_in(mux),
 	.port_in(port_in),
 	.port_out(port_out),
 	.rdy(rdy),
@@ -163,13 +167,13 @@ wire  [7:0] sid_data  = (RnW & cs_sid) ? sid_dout : 8'hFF;
 
 // -----------------------------------------------------------------------
 
-wire [16:0] mix_audio = (sid_type ? {sid_audio[17], sid_audio[17:2]} : 17'd0) + {ted_audio,ted_audio,ted_audio} + {cass_aud, 10'd0};
+wire [16:0] mix_audio = (sid_type ? {sid_audio[17], sid_audio[17:2]} : 17'd0) + {ted_digi[15], ted_digi} + {cass_aud, 10'd0};
 assign sound = ($signed(mix_audio) > $signed(17'd32767)) ? 16'd32767 : ($signed(mix_audio) < $signed(-17'd32768)) ? $signed(-16'd32768) : mix_audio[15:0];
 
 // -----------------------------------------------------------------------
 
-wire [4:0] ted_audio;
-// TED 8360 instance	
+wire signed [15:0] ted_digi;
+// TED 8360 instance
 ted mos8360
 (
 	.clk(CLK28),
@@ -189,13 +193,14 @@ ted mos8360
 	.ce_pix(CE_PIX),
 	.irq(irq_n),
 	.ba(rdy),
-	.cs_ram(CS_RAM),
+	.mux(mux),
+	.ras(ras),
+	.cas(cas),
 	.cs0(CS0),
 	.cs1(CS1),
-	.cs_io(CS_IO),
 	.aec(aec),
 	.k(kbus),
-	.snd(ted_audio),
+	.digi_sound(ted_digi),
 	.pal(PAL),
 	.tvmode(tvmode),
 	.cpuenable(cpuenable)
@@ -248,12 +253,24 @@ always @(posedge CLK28)	begin	// reset tries to emulate the length of a real res
 	end
 end
 
-// assign VSYNC=1'b1; // set scart mode to RGB for TV
-assign c16_addr=cpu_addr&ted_addr;									 // C16 address bus
-assign c16_data=cpu_data&ted_data&DIN&keyport_data&sid_data; // C16 data bus
+// address and data bus latching
+assign c16_addr=(~mux)?c16_addrlatch:cpu_addr&ted_addr;			// C16 address bus
+assign c16_data=(mux)?c16_datalatch:cpu_data&ted_data&DIN&keyport_data&sid_data&openbus_data; // C16 data bus
+
+always @(posedge CLK28) begin
+	c16_datalatch<=c16_data;
+	c16_addrlatch<=c16_addr;
+end
+
+// open bus reads for unmapped I/O space ($FDE0-$FDFF)
+wire       openbus_sel = cpu_addr[15:5] == {8'hFD, 3'b111};
+wire [7:0] openbus_data = openbus_sel ? c16_datalatch : 8'hff;
 
 assign ADDR=c16_addr;
 assign DOUT=cpu_data;
+assign MUX=mux;
+assign RAS=ras;
+assign CAS=cas;
 
 assign {port_in[5],port_in[3:0]} = {port_out[5],port_out[3:0]};
 

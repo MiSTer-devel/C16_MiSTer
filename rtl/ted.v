@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-//  Copyright 2013-2016 Istvan Hegedus
+//  Copyright 2013-2026 Istvan Hegedus
 //
 //  FPGATED is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -15,21 +15,62 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 //
-// Create Date:   12/18/2013 - 31/03/2016
-// Design Name: 	MOS 8360 video chip
+// Create Date:   18/12/2013 - 01/09/2026
+// Design Name:   MOS 8360 video chip
 // Module Name:   ted.v 
+// Version:       1.9
 // Project Name:  FPGATED
-// Description: 	Cycle exact MOS 8360 TED display chip
+// Description:   Cycle exact MOS 8360 TED display chip
 //
-// Revision history:  
-//	0.2	 12/11/2015			diag 264 runs, all screenmodes implemented, external dram works, scroll bug in diag264
-// 0.3	 22/01/2016			DRAM resfresh horizontal events improved (increment start/stop, counter reset),vertical scroll bug in Invincible, FF1E write bug in New FLI, FLI incorrect 	 				
-// 0.4	 03/02/2016			VertSub counter fixed for Invincible start screen
-// 0.5	 22/02/2016			Raster interrupt fixed, Invincible does not freeze now
-// 0.6	 03/03/2016			Multicolor Character mode bug fixed in pixelgenerator. Majesty Of Sprites looks good now
-// 0.7	 30/03/2016			Audio sound generator and audio D/A implemented
-// 1.0	 14/07/2016			First public release, functionally equivalent to 0.7, code cleaned up, license information added
-//////////////////////////////////////////////////////////////////////////////////
+// Revision history: (DD/MM/YY)  
+// 0.2    12/11/2015       Diag 264 runs, all screenmodes implemented, external dram works, scroll bug in diag264
+// 0.3    22/01/2016       DRAM refresh horizontal events improved (increment start/stop, counter reset),vertical scroll bug in Invincible, FF1E write bug in New FLI, FLI incorrect 	 				
+// 0.4    03/02/2016       VertSub counter fixed for Invincible start screen
+// 0.5    22/02/2016       Raster interrupt fixed, Invincible does not freeze now
+// 0.6    03/03/2016       Multicolor Character mode bug fixed in pixelgenerator. Majesty Of Sprites looks good now
+// 0.7    30/03/2016       Audio sound generator and audio D/A implemented
+// 1.0    14/07/2016       First public release, functionally equivalent to 0.7, code cleaned up, license information added
+// 1.0.1   8/03/2017       Pal register added to module output for FPGA clock switching
+// 1.1     1/10/2019       DMA position counter fixed (videocounter). MMS FLI demos work now. 
+// 1.2    23/05/2020       Burst enable signal added, databus OE signal added
+// 1.3     7/01/2021       DMA delay fix to improve compatibility with Alpharay (thanks to gyurco).
+// 1.3.1  24/02/2021	   enable hsync and vsync outputs
+// 1.4	  11/09/2022	   Adding 16bit digital audio output for PCM
+// 1.5    19/01/2024       Watchdog 2 was not used for audio channel 2 state reset. Fixed now. Not sure it is needed, to be verified!
+// 1.5.1  22/02/2024       shiftcount register removed as it was not used
+// 1.6    27/07/2025       TEST mode feature temporary disabled to improve compatibility
+// 1.6.1  24/09/2025       Screen's 1 pixel delay is eliminated to get in proper sync with border and background colors
+// 1.6.2  29/10/2025       $FF06 and $FF07 write fixes to happen correctly at single cycle end (delayed if it happens at double cycle end)
+// 1.7    08/11/2025       Timer2 bug fixed. False Idols demo works perfectly now! 
+// 1.8    13/12/2025       DMA counter (videocounter) reset position fixed (was line 311, now line 205). TED Vibes demos works now
+// 1.8.1   22/2/2026       xscroll and yscroll behaviour reverted to v1.6.1 (Fixes "A trip" demo)
+// 1.9     25/8/2026       Consolidated release integrating fixes originally developed in builds 1.8.2-1.8.4 by DJ n-ICE (djnice).
+//                         All issues were identified using emulator behaviour (plus4emu, yapesdl) and AI-assisted analysis. 
+//
+//                         Character Position Reload Fixes (from dev builds 1.8.2)
+//                          - Reload register is now rebuilt from two write latches instead of updating halves in place.
+//                            Prevents character row latch leakage into the unwritten half.
+//                          - Writes to $FF1A/$FF1B occurring in the same cycle as the character row latch now take priority.
+//                            Previously, latch timing caused the written value to be discarded, shifting the reload by one row per line.
+//                          Fixes the Rocket Science letter effect (the bands torn into stripes).
+//
+//                          Side Border & Bitmap Behaviour Adjustments (from dev builds 1.8.3)
+//                          Derived from emulator behaviour; no visible issues were known to depend on these, but they improve correctness:
+//                          - Side border flip-flop replaced with a single CSEL-dependent set/reset mechanism.
+//                            Allows mid-line CSEL changes to skip reset and open the side border.
+//                          - Bitmap shift register now loads zeroes outside the character window.
+//                            Prevents opened side borders from repeating the last fetched byte.
+//
+//                          Character Buffer Reload Correction on Badlines (from dev builds 1.8.4)
+//                           - char_buf is no longer reloaded on a badline that has no character DMA following it.
+//                             Badlines read the video matrix twice:
+//                               o Badline: colour from base+0
+//                               o Next line: luminance from base+$400
+//                             plus4emu and yapesdl only load luminance on the second read; previous FPGATED core incorrectly loaded it on
+//                             every badline.
+//                             Fixes Rocket Science colour scenes (e.g swirling door), which forces an extra badline every 8 raster lines. 
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 module ted
 (
@@ -41,29 +82,34 @@ module ted
 	output  [7:0] data_out,
 	input         rw,
 	output        cpuclk,			// this is a CPU clock for external real CPU
-	output  [6:0] color,				// 7 bits color code
+	output  [6:0] color,			// 7 bits color code
 	output        csync,
-	output reg    hsync,
-	output reg    vsync,
+	output        irq,
+	output        ba,
+	output reg    mux,
+	output reg    ras,
+	output reg    cas,
+	output reg    cs0,
+	output reg    cs1,
 	output reg    hblank,
 	output reg    vblank_out,
 	input         wide,
 	output        ce_pix,
-	output        irq,
-	output        ba,
-	output reg    cs_io,
-	output reg    cs_ram,
-	output reg    cs0,
-	output reg    cs1,
 	output reg    aec,
 	output  [4:0] snd,
-	output        pal,
+	output signed [15:0] digi_sound,	// 16bit digital sound output for PCM
 	input   [7:0] k,
 	input   [1:0] tvmode,
-	output        cpuenable			// this TED signals is needed only for FPGA bustiming and FPGA internal cpu. If external CPU is used, it is not needed.
-);
+	output        cpuenable,			 // this TED signals is needed only for FPGA bustiming and FPGA internal cpu. If external CPU is used, it is not needed.
+	output        pal,					 // pal/ntsc flag (PAL=0 NTSC=1)
+    output reg hsync,                    // horizontal sync for composite video generator or scandoubler
+    output reg vsync                     // vertical sync for composite video generator or scandoubler
+	/*output reg burst,                  //	burst enabler signal for composite video generator
+    output reg even,                     // signals even scanlines for PAL encoder
+    output reg data_oe                   // used for databus OE signal when TED places data on bus (active high)*/
+    );
 
-	 
+
 // TED register addresses
 
 parameter TIMER1LO=6'h00;
@@ -109,35 +155,39 @@ reg [2:0] dma_state=IDLE,dma_nextstate;			// DMA FSM state register
 // TED user accessible registers
 // These registers are the actual TED registers accessible by end users
 
-reg [15:0] timer1=16'b0,timer1_reload=16'b0;													// $FF00/01
+reg [15:0] timer1=16'b0,timer1_reload=16'b0;													    // $FF00/01
 reg [15:0] timer2=16'b0;																			// $FF02/03
 reg [15:0] timer3=16'b0;																			// $FF04/05
-reg test=1'b0,ecm=1'b0,bmm=1'b0,den=1'b0,rsel=1'b0;										// $FF06 control1 register bits
+reg test=1'b0,ecm=1'b0,bmm=1'b0,den=1'b0,rsel=1'b0;										            // $FF06 control1 register bits
 reg [2:0] yscroll=3'b0;																				// $FF06 bits 0-2, vertical scroll register
-reg bmm_reg=1'b0,ecm_reg=1'b0;																	// delayed registered values of BMM and ECM
-reg reverse=1'b0,stop=1'b0,mcm=1'b0,csel=1'b0;									         // $FF07 control2 register bits
+reg bmm_reg=1'b0,ecm_reg=1'b0;																	    // delayed registered values of BMM and ECM
+reg reverse=1'b0,stop=1'b0,mcm=1'b0,csel=1'b0;												        // $FF07 control2 register bits
 reg [2:0] xscroll=3'b0;																				// $FF07 bits 0-2, horizontal scroll regitser
-reg reverse_reg=1'b0,mcm_reg=1'b0;																// delayed registered values of REVERSE and ECM
+reg reverse_reg=1'b0,mcm_reg=1'b0;																    // delayed registered values of REVERSE and ECM
 reg [7:0] keylatch=8'hff;																			// $FF08 keyboard latch
-reg Cnt1Irq=1'b0,Cnt2Irq=1'b0,Cnt3Irq=1'b0,RasterIrq=1'b0,LPIrq=1'b1;				// $FF09 IRQ register
-reg enCnt1Irq=1'b0,enCnt2Irq=1'b0,enCnt3Irq=1'b0,enRasterIrq=1'b0,enLPIrq=1'b0; 	// $FF0A IRQ enable register
+reg Cnt1Irq=1'b0,Cnt2Irq=1'b0,Cnt3Irq=1'b0,RasterIrq=1'b0,LPIrq=1'b1;				                // $FF09 IRQ register
+reg enCnt1Irq=1'b0,enCnt2Irq=1'b0,enCnt3Irq=1'b0,enRasterIrq=1'b0,enLPIrq=1'b0; 	                // $FF0A IRQ enable register
 reg [8:0] RasterCmp=9'b0;																			// $FF0B
 reg [9:0] CursorPos=10'b0;																			// $FF0C/0D
 reg [9:0] Ch1Freq=10'b0;																			// $FF0E, $FF12 bits 0-1
 reg [9:0] Ch2Freq=10'b0;																			// $FF0F, $FF10 bits 0-1
-reg damode=1'b0,ch2noise=1'b0,ch2en=1'b0,ch1en=1'b0;										// $FF11 bits 4-7
+reg damode=1'b0,ch2noise=1'b0,ch2en=1'b0,ch1en=1'b0;										        // $FF11 bits 4-7
 reg [3:0] volume=4'b0;																				// $FF11 bits 0-3
 reg [2:0] bmapbase=3'b0;																			// $FF12 bits 3-5, Bitmap base address
-reg charrom=1'b0;																						// $FF12 bit 2
+reg charrom=1'b0;																					// $FF12 bit 2
 reg [5:0] charbase=6'b0;																			// $FF13 bits 2-7, Character memory base address
-reg clkmode=1'b0;																						// $FF13 bit 1, force single clock mode
+reg clkmode=1'b0;																					// $FF13 bit 1, force single clock mode
 reg [4:0] vmbase=5'b0;																				// $FF14 bits 3-7, Video RAM base address register 
-reg [6:0] bgcolor0=7'b0,bgcolor1=7'b0,bgcolor2=7'b0,bgcolor3=7'b0,excolor=7'b0;	// $FF15-19 color registers
-reg [9:0] CharPosReload=10'b0;																	// $FF1A/B, Character Position Reload increments by 40 for each character row completed
-reg [8:0] vcounter=9'b0;							   											// $FF1C/D, Vertical line counter
-reg [8:0] hcounter=9'b0;							   											// $FF1E, Horizontal dot counter. In real TED it is 11bit. Counts from 0 to 455
+reg [6:0] bgcolor0=7'b0,bgcolor1=7'b0,bgcolor2=7'b0,bgcolor3=7'b0,excolor=7'b0;	                    // $FF15-19 color registers
+reg [9:0] CharPosReload=10'b0;																	    // $FF1A/B, Character Position Reload increments by 40 for each character row completed
+reg [1:0] CharPosRegHi=2'b0;										// $FF1A/$FF1B as the CPU last wrote them. The reload register above is rebuilt from
+reg [7:0] CharPosRegLo=8'b0;										// these two on every write, so a character row latch that lands between a $FF1B and a
+reg charpos_copyback=1'b0;											// $FF1A write cannot leak into the half the CPU did not write. See the write block below.
+reg charpos_write_d=1'b0;											// a $FF1A/$FF1B write in the clock before the character row latch
+reg [8:0] vcounter=9'b0;							   											    // $FF1C/D, Vertical line counter
+reg [8:0] hcounter=9'b0;							   											    // $FF1E, Horizontal dot counter. In real TED it is 11bit. Counts from 0 to 455
 reg [4:0] FlashCount=5'b0;																			// $FF1F bits 3-6, Flash counter's 5th bit is the actual flash state and is not user accessible
-reg [2:0] VertSubCount=3'b0;																		// $FF1f bits 0-2, Vertical Character scan line position
+reg [2:0] VertSubCount=3'b0;																		// $FF1F bits 0-2, Vertical Character scan line position
 
 // TED internal operational registers
 // These are needed for the internal operation 
@@ -157,23 +207,23 @@ reg [5:0] addr_in_reg;									// TED address in register
 
 reg [6:0] colorreg=7'b0;								// video out register
 reg ramen=1'b0;											// High memory address RAM enable register (above $8000)
-reg t1stop=1'b0,t2stop=1'b0,t3stop=1'b0;			// Timer disable signals
-reg resetRasterIrq,/*resetLpIrq,*/resetCnt1Irq,resetCnt2Irq,resetCnt3Irq; // Interrupt reset signals
+reg t1stop=1'b0,t2stop=1'b0,t3stop=1'b0;			    // Timer disable signals
+reg resetRasterIrq,resetLpIrq,resetCnt1Irq,resetCnt2Irq,resetCnt3Irq; // Interrupt reset signals
 reg RasterIrqDone=1'b0;									// Signals that raster interrupt has already happened in this line
 reg enabledisplay=1'b0;									// DEN register changes enabledisplay signal on first scanline only
 reg badline2=1'b0;										// signals 2nd badline (1st badline signal is a wire)
 reg ext_fetch=1'b0;										// signals external fetch window inside scanline
-reg char_fetch=1'b0;										// signals character fetch window inside scanline
-reg dma_window=1'b0;										// signals active dma range inside a scanline
+reg char_fetch=1'b0;									// signals character fetch window inside scanline
+reg dma_window=1'b0;									// signals active dma range inside a scanline
 reg char_window=1'b0;									// signals when character/pixel data can be latched from data bus inside a scanline
-reg inc_flashcount_window=1'b0;						// signals flash counter increase window
+reg inc_flashcount_window=1'b0;						    // signals flash counter increase window
 reg inc_vertsub_window=1'b0;							// active for one single clock cycle, signals vertsub register incrementation point (thus actual increment point is delayed with a single clock cycle)
 reg inc_vertline_window=1'b0;							// active for one single clock cycle, signals vertical line incrementation point (thus actual increment point is delayed with a single clock cycle)
 
 // horizontal event positions used for the horizontal event decoder. They don't necessarily reflect the values seen in documentation 
-reg hpos_0,hpos_8,hpos_154,hpos_172,hpos_288,hpos_295,hpos_296,hpos_303,hpos_304;
-reg hpos_312,hpos_320,hpos_336,hpos_343,hpos_348,hpos_352,hpos_359,hpos_380,hpos_382;
-reg hpos_384,hpos_391,hpos_392,hpos_400,hpos_407,hpos_424,hpos_431,hpos_432,hpos_440,hpos_1,hpos_321;
+reg hpos_0,hpos_1,hpos_8,hpos_154,hpos_172,hpos_288,hpos_295,hpos_296,hpos_303,hpos_304;
+reg hpos_312,hpos_320,hpos_321,hpos_336,hpos_343,hpos_348,hpos_353,hpos_359,hpos_380,hpos_382;
+reg hpos_384,hpos_391,hpos_392,hpos_394,hpos_400,hpos_407,hpos_418,hpos_423,hpos_431,hpos_432,hpos_440;
 
 reg inc_charpos=1'b0;									// signals internal character position register (not user accessible) increment range inside scanline (not same as $FF1A/$FF1B) 
 reg [15:0] addr_out_reg;								// TED's address out register
@@ -183,9 +233,10 @@ reg VertSubActive=1'b0;									// signals the scanline ranges when Vertsub coun
 reg tedwrite_delay=1'b0;								// this signal was needed to emulate a one dot clock delay when TED writes data to its internal registers. Although most probably this delay exist at
 																// all TED register writes, in FPGATED we use it only for hcounter/vcounter and color register writes. This emulates white pixel bug too.
 reg csyncreg=1'b0,palreg=1'b0,equalization=1'b0,eq1=1'b1,eq2=1'b1;		// PAL/NTSC video screen signals
+reg burstreg=1'b0;
 reg [9:0] videocounter=10'b0;							// videocounter is the actual DMA counter.
 reg inc_videocounter=1'b0;								// signals videocounter increment window
-reg [9:0] videocounter_reload=10'b0;				// videocounter is reloaded with this value at the beginning of each displayed line
+reg [9:0] videocounter_reload=10'b0;				    // videocounter is reloaded with this value at the beginning of each displayed line
 reg [9:0] CharPosition=10'b0;							// CharPosition is loaded by $FF1A/$FF1B and is similar to videocounter. It is used for pixel data fetch from memory. 
 reg CharPosLatch=1'b0;									// Signals latching position of CharPosition and videocounter
 reg latch_window=1'b0;									// CharPosition and videocounter latch delay window
@@ -197,31 +248,33 @@ reg [7:0] nextchar=8'b0,currentchar=8'b0,waitingchar=8'b0,pixelchar=8'b0;	// nex
 reg [7:0] nextattr=8'b0,currentattr=8'b0,waitingattr=8'b0,pixelattr=8'b0;	
 reg [7:0] nextpixels=8'b0,currentpixels=8'b0,waitingpixels=8'b0;
 reg [7:0] pixelshiftreg=8'b0;							// This register contains pixel data and shifts it during rendering
-reg [5:0] shiftcount=6'b0;								// Used by the videomatrix shift register to count number of shifts
+//reg [5:0] shiftcount=6'b0;							// Used by the videomatrix shift register to count number of shifts
 reg verticalscreen=1'b0;								// Signals which lines are in screen area (top/bottom border control)
-reg widescreen=1'b0,narrowscreen=1'b0;				// Signals horizontal screen area (left/right border control)
-reg videoshift=1'b0;										// Signals when vide shoft register is active
+reg sideborder=1'b0;								    // Side border flip-flop. Signals horizontal screen area (left/right border control)
+reg videoshift=1'b0;								    // Signals when video shift register is active
 reg nextcursor=1'b0,currentcursor=1'b0,waitingcursor=1'b0;  // cursor state internal storage for 3 signle clock cycles
 
 reg [6:0] pixelcolor;									// Color of a pixel
 reg doubleshift=1'b0;									// During multicolor mode 2 pixels identify one pixel, so this register signals to pixel generator wheter to shift one or two pixels to get color data
-reg dotfetch;												// Signals when TED is fetching pixeldata from databus
+reg dotfetch;											// Signals when TED is fetching pixeldata from databus
 reg dotfetch_reg=1'b0;									// Registered version of dotfetch
-reg [2:0] xscroll_latch=3'b0;							// Registered version of xscroll register
-reg [2:0] yscroll_latch=3'b0;							// Registered version of yscroll register
-reg vblank=1'b0;							// Signals blanking area
+reg [2:0] xscroll_reg=3'b0;							    // Registered version of xscroll register
+reg [2:0] yscroll_reg=3'b0;							    // Registered version of yscroll register
+reg vblank=1'b0;										// Signals blanking area
 reg refresh_inc=1'b0;									// Dram refresh counter increment window
-reg stopreg=1'b0;											// This is a latched version of stop register. Latched at single cycle end
+reg stopreg=1'b0;										// This is a latched version of stop register. Latched at single cycle end
 
 // audio part registers
 
 reg [1:0] audiocycle=2'b0;								// Audio cycle counter divides single clock by 4 and generates audio clock
-reg [9:0] ch1count=10'b0,ch2count=10'b0;			// Audio channel1 and channel2 counters
+reg [9:0] ch1count=10'b0,ch2count=10'b0;			    // Audio channel1 and channel2 counters
 reg ch1state=1'b0,ch2state=1'b0;						// State register of audio channels
 reg ch1stateclk_prev=1'b0,ch2stateclk_prev=1'b0;
 reg [7:0] noisegen=8'b0;								// Noise generator register
+reg [4:0] pwmcounter1=5'b0,pwmcounter2=5'b0;		    // PWM D/A counters
+reg ch1pwm=0,ch2pwm=0;									// continous square wave with proportional duty cycle to volume
 reg [4:0] digivolume=5'b0;								// A digital value signaling at which pwmclock cycle PWM signal high value starts. A digitized version of volume level
-reg [17:0] watchdog_ch1=18'b0,watchdog_ch2=18'b0;	// Watchdog timer to emulate sound decay of TED's dynamic latch behaviour
+reg [17:0] watchdog_ch1=18'b0,watchdog_ch2=18'b0;	    // Watchdog timer to emulate sound decay of TED's dynamic latch behaviour
 
 
 integer i;
@@ -236,18 +289,22 @@ wire tick8;													// enable tick for pixelclock (8MHz)
 wire blanking;												// screen blanking area flag
 wire lowrom,highrom;										// TED low and high rom area flags
 wire irqpos;												// IRQ position flag inside clock cycle. Emulates real TED's IRQ signal activation position
-wire io,tedreg,tedwrite;								// IO area flag, TED user registers area flag, TED write cycle flag (signals when TED register is written by CPU)
+wire io,tedreg,tedwrite;								    // IO area flag, TED user registers area flag, TED write cycle flag (signals when TED register is written by CPU)
 wire badline;												// badline flag
-wire attr_fetch_line;									// Visible screen area flag (signals active window)
+wire attr_fetch_line;									    // Visible screen area flag (signals active window)
 wire tedlatch;												// tedlatch simulates at which exact position TED latches value into its internal register from the databus
 wire [7:0] charpointer,attrpointer;
 wire multicolor;											// multicolor mode flag
 wire pixelscreen;											// visible pixelscreen area flag (excluding borders)
-wire ch1clk,ch2clk;										// Audio channel clocks
-wire ch1stateclk,ch2stateclk;							// Audio state register change clock
-wire ch1audio,ch2audio;									// Audio channel square waves not modulated by volume (before PWM)
+wire ch1clk,ch2clk;										    // Audio channel clocks
+wire ch1stateclk,ch2stateclk;							    // Audio state register change clock
+wire ch1audio,ch2audio;									    // Audio channel square waves not modulated by volume (before PWM)
 wire noise;													// Noise
-wire watchdog_ch1max,watchdog_ch2max;				// Audio watchdog timer maximum values. Actual value is taken from plus4emu
+wire watchdog_ch1max,watchdog_ch2max;				        // Audio watchdog timer maximum values. Actual value is taken from plus4emu
+wire cycle_end,pre_cycle_end,single_cycle_end;
+
+wire cursor;
+
 
 // Initializing internal video matrix
 
@@ -261,30 +318,34 @@ initial
 	end
 
 
-//-----------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // Often used combinational signals
-//-----------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
-wire cycle_end=(phicounter==15)?1'b1:1'b0;				// high pulse at the end of each double clock cycle
-wire single_cycle_end=(cycle_end & phi)?1'b1:1'b0;	// high pulse at the end of each single clock cycle
+assign cycle_end=(phicounter==15)?1'b1:1'b0;			// high pulse at the end of each double clock cycle
+assign pre_cycle_end=(phicounter==14)?1'b1:1'b0;        // high pulse one cycle before double clock cycle end 
+assign single_cycle_end=(cycle_end & phi)?1'b1:1'b0;	// high pulse at the end of each single clock cycle
 
-//-----------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // Clock signal driver phi=Single Clock  dphi=Double Clock
-//-----------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
-always @(posedge clk) begin									// Counting FPGA clock cycles during double clock. phicounter is mod16 counter, 16*clk=half phi
+always @(posedge clk)											// Counting FPGA clock cycles during double clock. phicounter is mod16 counter, 16*clk=half phi
+	begin
 	phicounter<=phicounter+1'd1;
-end
-
+	end
+	
 assign cpuclk = singleclock?phi:dphi;						// Generated CPU clock. Used only when real 8501 CPU is connected to FPGA
-assign dphi = phicounter[3];									// Internal double clock signal
+assign dphi = phicounter[3];								// Internal double clock signal
 assign cpuenable=(single_cycle_end)?1'b1:					// Generated CPU enable signal. Used only when FPGA CPU is used
 						(cycle_end && !singleclock)?1'b1:
 						1'b0;
 			
-always @(posedge clk) begin									// Internal single clock signal is always generated
-	if (cycle_end)	phi<=~phi;											
-end
+always @(posedge clk)											// Internal single clock signal is always generated
+	begin
+		if (cycle_end)
+				phi<=~phi;											
+	end
 
 always @(posedge clk)											// clock mode controller. Single or double clock multiplex for the CPU.
 	begin
@@ -298,9 +359,9 @@ always @(posedge clk)
 		stopreg<=stop;
 	end
 
-//--------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // Attribute Fetch
-//--------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
 always @(posedge clk)											// flip flop to signal external fetch single clock window, delayed with 1 single clock cycle
 	begin
@@ -312,9 +373,9 @@ always @(posedge clk)											// flip flop to signal external fetch single clo
 
 assign attr_fetch_line=(videoline>=0 && videoline<203);
 
-//--------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // DRAM Refresh
-//--------------------------------------------------------------------------	
+//---------------------------------------------------------------------------	
 
 always @(posedge clk)											// refresh single clock control
 	begin
@@ -358,7 +419,7 @@ always @(posedge clk)
 always @*									//horizontal counter next state logic
 	begin
 	hcounter_next=hcounter;
-		if (tedlatch & addr_in_reg[5:0]==HSCANPOS)								// horizontal counter is written by CPU 
+		if (tedlatch & addr_in_reg[5:0]==HSCANPOS)								// $ff1e horizontal counter register write 
 			begin
 				hcounter_next=hcounter+1'd1;
 				hcounter_next[8:3]=~data_in_reg[7:2];		// bit 0-2 are not modified by user write to prevent clock phase change
@@ -406,35 +467,28 @@ always @(posedge clk)
 // timer 1 changes approximately at half of phi low cycle after IRQ position (IRQ position is 160ns after phi low cycle start).
 //   
 
-always @(posedge clk) begin
-	if(tedwrite)												// load timer 1 at cycle border
-		begin
-		if (addr_in[5:0]==TIMER1LO)
+always @(posedge clk)
+	begin
+		if (tedwrite && addr_in[5:0]==TIMER1LO)                                // load timer 1 at cycle border
 			begin
 				timer1[7:0]<=data_in;
 				timer1_reload[7:0]<=data_in;
 				t1stop<=1;
 			end
-		if (addr_in[5:0]==TIMER1HI)
+		else if (tedwrite && addr_in[5:0]==TIMER1HI)
 			begin
 				timer1[15:8]<=data_in;
 				timer1_reload[15:8]<=data_in;
 				t1stop<=0;
 			end
-		end
-	if(phicounter==7 && ~phi & ~t1stop & ~stopreg)			// decrement or reload timer 1
-		begin															
-		if(timer1==0)											
-			timer1<=timer1_reload-1'd1;
-		else
-			timer1<=timer1-1'd1;
-		end
-		
-	if(reset) begin
-		t1stop <= 1;
-		timer1 <= 16'hFFFF;
+		else if(phicounter==7 && ~phi & ~t1stop & ~stopreg)			// decrement or reload timer 1
+			begin															
+			if(timer1==0)											
+				timer1<=timer1_reload-1'd1;
+			else
+				timer1<=timer1-1'd1;
+			end	
 	end
-end
 	
 //---------------------------------------------------------------------------
 // Timer 2
@@ -442,30 +496,23 @@ end
 // timer 2 decrements during even single clock cycle (phi=1)
 // timer 2 changes approximately at odd-even single clock cycle boundary (phi low - high transition)
 
-always @(posedge clk) begin
-	if(tedwrite)													// load timer 2 at cycle border
-		begin
-		if (addr_in[5:0]==TIMER2LO)
+always @(posedge clk)
+	begin										                            
+    	if (tedwrite && addr_in[5:0]==TIMER2LO)                            // load timer 2 low byte at $FF02 write		
 			begin
 				timer2[7:0]<=data_in;
 				t2stop<=1;
 			end
-		if (addr_in[5:0]==TIMER2HI)
+		else if (tedwrite && addr_in[5:0]==TIMER2HI)                      // load timer 2 high byte at $FF03 write
 			begin
 				timer2[15:8]<=data_in;
 				t2stop<=0;
 			end
-		end
-	else if(phicounter==15 && phi==0 && t2stop==0 && stopreg==0)		// if not loaded, decrement timer 2 at odd-even cycle border
-	begin
-		timer2<=timer2-1'd1;
+		else if(phicounter==15 && ~phi && ~t2stop && ~stopreg)	          // if not loaded, decrement timer 2 at odd-even cycle border
+		    begin
+		        timer2<=timer2-1'd1;
+		    end
 	end
-
-	if(reset) begin
-		t2stop <= 1;
-		timer2 <= 16'hFFFF;
-	end
-end
 
 //---------------------------------------------------------------------------
 // Timer 3
@@ -473,30 +520,23 @@ end
 // timer 3 decrements during even single clock cycle (phi=1)
 // timer 3 changes approximately at half of phi high cycle (contrary to timer 1)
 
-always @(posedge clk) begin
-	if(tedwrite)
-		begin
-		if (addr_in[5:0]==TIMER3LO)							// load timer 3 at cycle border
+always @(posedge clk)
+	begin
+    	if (tedwrite && addr_in[5:0]==TIMER3LO)							// load timer 3 low byte at $FF04 write
 			begin
 				timer3[7:0]<=data_in;
 				t3stop<=1;
 			end
-		if (addr_in[5:0]==TIMER3HI)
+		else if (tedwrite && addr_in[5:0]==TIMER3HI)                    // load timer 3 high byte at $FF05 write
 			begin
 				timer3[15:8]<=data_in;
 				t3stop<=0;
 			end
-		end
-	if(phicounter==7 && phi==1 && t3stop==0 && stopreg==0)				// decrement timer 3
-		begin
-		timer3<=timer3-1'd1;
-		end
-
-	if(reset) begin
-		t3stop <= 1;
-		timer3 <= 16'hFFFF;
+		else if(phicounter==7 && phi && ~t3stop && ~stopreg)           // when not loaded, decrement timer 3 at even cycle
+		    begin
+		        timer3<=timer3-1;
+		    end
 	end
-end
 	
 //---------------------------------------------------------------------------
 // Timer IRQs
@@ -576,7 +616,7 @@ assign ba=(dma_state==IDLE)?1'b1:1'b0;
 // badline
 //---------------------------------------------------------------------------
 
-assign badline=((yscroll_latch==videoline[2:0]) & enabledisplay & attr_fetch_line)?1'b1:1'b0;			// signal 1st badline
+assign badline=((yscroll_reg==videoline[2:0]) & enabledisplay & attr_fetch_line)?1'b1:1'b0;			// signal 1st badline
 
 always @(posedge clk)
 	begin
@@ -594,8 +634,9 @@ always @(posedge clk)
 always @(posedge clk)										// synchronize yscroll changes to single cycle border
 	begin
 	if(single_cycle_end)
-		yscroll_latch<=yscroll;
+		yscroll_reg<=yscroll;
 	end
+
 
 //---------------------------------------------------------------------------
 // EnableDisplay signal
@@ -649,23 +690,78 @@ always @(posedge clk)
 	if(hpos_392)
 		begin
 		if(VertSubCount==6)
-			CharPosLatch<=1;				// CharPosLatch signal activates in line 6 and signals that videocounter (DMA counter) has been latched. It is used in line 7 for character position latch.
+			CharPosLatch<=1;			// CharPosLatch signal activates in line 6 and signals that videocounter (DMA counter) has been latched. It is used in line 7 for character position latch.
 		else 
 			CharPosLatch<=0;
 		end
 	end
 
+// $FF1A and $FF1B are write latches of their own, and the reload register is rebuilt from
+// both of them whenever either one is written - it is not two halves of one register that
+// a write updates in place. The difference only shows when the character row latch below
+// fires in the same character row as a $FF1A/$FF1B write: with an in place update the
+// latched value survives in the half the CPU did not write this line, which is wrong.
+// Rocket Science depends on this. Its per line effect writes $FF1B at hcounter 232 and
+// $FF1A at 296 - the latch position - and forces $FF1F to 6 on some lines, which arms the
+// latch. Measured against plus4emu on the demo's own frames (tb/rs_replay.cpp): with the
+// in place update ted.v used a reload that was whole character rows plus 16 characters
+// away from the value the program wrote, on 11 to 51 of the 196 lines the effect covers,
+// so those bands were fetched from the wrong place. plus4emu keeps the written bytes in
+// tedRegisters[$1A]/[$1B] and rebuilds characterPositionReload from them on every write.
 always @(posedge clk)					// Character Position Reload register $FF1A/$FF1B
 	begin
 	if(tedwrite & addr_in[5:0]==CHARPOSRELOADHI)
-			CharPosReload[9:8]<=data_in[1:0];
+			CharPosReload<={data_in[1:0],CharPosRegLo};
 	else if(tedwrite & addr_in[5:0]==CHARPOSRELOADLO)
-			CharPosReload[7:0]<=data_in;
-	else if(hpos_392 & videoline==EOS)		// clear character position reload at last line
+			CharPosReload<={CharPosRegHi,data_in};
+	else if(hpos_392 & videoline==EOS)		            // clear character position reload at last line
 			CharPosReload<=0;
-	else if(CharPosLatch & latch_charposition & VertSubActive)				// latch character position at 7th line of a character row if videocunter was latched in previous 6th row
+	else if(CharPosLatch & latch_charposition & VertSubActive & ~charpos_write_d)				// latch character position at 7th line of a character row if videocounter was latched in previous 6th row
 			CharPosReload<=CharPosition;
 	end
+
+// The latched reload is copied back into the two write latches one single clock cycle
+// later, which is the cycle a CPU write started in the same cycle as the latch lands in.
+// A write in that cycle therefore still rebuilds the reload from what the program wrote,
+// and takes priority over the copy back; plus4emu does the same with its delayed
+// updateCharPosReloadRegisters event.
+always @(posedge clk)
+	begin
+	if(CharPosLatch & latch_charposition & VertSubActive & ~charpos_write_d)
+		charpos_copyback<=1;
+	else if(single_cycle_end)
+		charpos_copyback<=0;
+	end
+
+always @(posedge clk)					// $FF1A/$FF1B write latches
+	begin
+	if(tedwrite & addr_in[5:0]==CHARPOSRELOADHI)
+			CharPosRegHi<=data_in[1:0];
+	else if(tedwrite & addr_in[5:0]==CHARPOSRELOADLO)
+			CharPosRegLo<=data_in;
+	else if(hpos_392 & videoline==EOS)
+			{CharPosRegHi,CharPosRegLo}<=10'b0;
+	else if(charpos_copyback & single_cycle_end)
+			{CharPosRegHi,CharPosRegLo}<=CharPosReload;
+	end
+
+// A $FF1A/$FF1B write in the same cycle as the character row latch has to win. The real TED
+// applies the latch at the start of the videoColumn and the CPU's write at the end of the
+// same one: plus4emu schedules latchCharacterPosition at videoColumn 72 as a delayedEvents0
+// event, which is processed at the top of column 74, and runs the CPU afterwards in that
+// same column. Its log of every change of characterPositionReload shows the pair together,
+// latch first, write second, on every line of the effect:
+//     93 74 480 latch      93 74 440 write
+// In ted.v the two are one FPGA clock apart the other way round -- tedwrite lands at
+// cycle_end and latch_charposition is registered from the same edge, so it fires one clock
+// later and overwrites what the CPU just wrote. Measured with the core's own CPU
+// (sim/run_scene.sh -cprlog): CharPosReload 696 -> 440 by the write, then 440 -> 560 by the
+// latch, on every line Rocket Science sets $FF1F to 6 - so the reload ran away by 40 a line
+// and 18 of the 197 lines of the effect fetched their pixel data from the wrong address.
+// This holds the write off for exactly that one clock, so the latch skips the line the CPU
+// wrote in and nothing else changes.
+always @(posedge clk)
+	charpos_write_d<=tedwrite & (addr_in[5:0]==CHARPOSRELOADHI | addr_in[5:0]==CHARPOSRELOADLO);
 
 always @(posedge clk)									// Character Position counter (not user accessible)
 	begin
@@ -673,7 +769,7 @@ always @(posedge clk)									// Character Position counter (not user accessible
 		CharPosition<=0;
 	else
 		begin
-		if(hpos_432 & enabledisplay & VertSubActive)										// FIXME this might need delay
+		if(hpos_432 & enabledisplay & VertSubActive)   // FIXME this might need delay
 			CharPosition<=CharPosReload;
 		else if(inc_charpos & single_cycle_end)
 			CharPosition<=CharPosition+1'd1;
@@ -686,10 +782,11 @@ always @(posedge clk)									// Character Position counter (not user accessible
 //---------------------------------------------------------------------------
 // DMA FSM
 
+
 always @(posedge clk)
 	begin
 	dma_state<=dma_nextstate;
-	end
+ 	end
 
 always @*
 	begin
@@ -720,6 +817,7 @@ always @*
 	TDMA:		begin
 				if (~dma_window | ~(badline|badline2))
 					dma_nextstate=IDLE;
+				else dma_nextstate=TDMA;
 				end
 	default:	dma_nextstate=IDLE;
 	endcase	
@@ -734,15 +832,15 @@ always @(posedge clk)
 	end
 
 
-//-------------
+//---------------------------------------------------------------------------
 // Attribute fetch address generation (videocounter is DMA position counter)
-//-------------
+//---------------------------------------------------------------------------
 
-always @(posedge clk)				// videocounter increase window				
+always @(posedge clk)																		// videocounter increase window				
 	begin
 	if(enabledisplay)
 		begin
-		if(hpos_296 | shiftcount==6'd40)
+		if(hpos_296) // | shiftcount==6'd40)
 			inc_videocounter<=0;
 		else if(hpos_432)
 			inc_videocounter<=1;
@@ -751,28 +849,29 @@ always @(posedge clk)				// videocounter increase window
 
 always @(posedge clk)
 	begin
-	if(hpos_392 & videoline==EOS)	// clear videocounter reload register at last line
+	if(hpos_392 & videoline==9'd205)										    // clear videocounter reload register at line 205
 		videocounter_reload<=0;
-		else if(inc_videocounter && hcounter_next == 9'd432 && tick8) // if the videocounter running when it's reloaded, that affects the reload value (HSP in Alpharay)
-		videocounter_reload<=videocounter+1'd1;
+	else if(inc_videocounter && hcounter_next == 9'd432 && tick8)           // if the videocounter running when it's reloaded, that affects the reload value (HSP in Alpharay)
+			videocounter_reload<=videocounter+1'd1;
 	else if(VertSubCount==6 && latch_charposition && enabledisplay)			// Latch videocounter position at 6th line of a character row
 		videocounter_reload<=videocounter;
 	end	
 	
-always @(posedge clk)						// videocounter used for attribute and character pointer fetches (DMA counter)
+always @(posedge clk)						                               // videocounter used for attribute and character pointer fetches (DMA counter)
 	begin
 	if(enabledisplay)
 		begin
+//		videocounter<=((hpos_431 & tick8)?videocounter_reload:videocounter) + ((inc_videocounter & single_cycle_end)?1'b1:1'b0);
 		if(hpos_432)
 			videocounter<=videocounter_reload;
-		else if(inc_videocounter & single_cycle_end)							// increase videocounter at cycle border
+		else if(inc_videocounter & single_cycle_end)					   // increase videocounter at cycle border
 			videocounter<=videocounter+1'd1;
 		end
 	end
 
-//------------------------------------
+//---------------------------------------------------------------------------
 // Internal VideoMatrix (DMA buffers)	
-//------------------------------------
+//---------------------------------------------------------------------------
 
 	
 always @(posedge clk)
@@ -791,8 +890,6 @@ always @(posedge clk)
 				attr_buf[i]<=attr_buf[i-1];
 				end
 			nextattr<=attr_buf[39];
-			shiftcount<=shiftcount+1'd1;
-			
 			if(((CursorPos==CharPosition) && VertSubActive) || (CursorPos==0 && CharPosition==0))					// cursor position must be checked here 
 				nextcursor<=1;
 			else nextcursor<=0;
@@ -800,7 +897,6 @@ always @(posedge clk)
 			end
 		else begin
 			nextattr<=0;
-			shiftcount<=0;
 			end
 		end
 	end
@@ -830,7 +926,7 @@ always @(posedge clk)
 	end
 
 
-always @(posedge clk)							// character window flag is needed for fetching pixel data from bus
+always @(posedge clk)							               // character window flag is needed for fetching pixel data from bus
 	begin
 	if(hpos_304)
 		char_window<=0;
@@ -838,7 +934,7 @@ always @(posedge clk)							// character window flag is needed for fetching pixe
 		char_window<=1;
 	end
 
-always @(posedge clk)								// latch pixel data from data bus at phi0 change from 0 to 1
+always @(posedge clk)								          // latch pixel data from data bus at phi0 change from 0 to 1
 	begin
 	if(char_window)
 		begin
@@ -861,9 +957,9 @@ always @(posedge clk)
 		inc_vertsub_window<=0;
 	
 			
-	if (hpos_380 & badline)													// ... activates at 1st badline of the frame
+	if (hpos_380 & badline)												// ... activates at 1st badline of the frame
 		VertSubActive<=1;
-	else if (~enabledisplay)												// ... inactivates at line 204
+	else if (~enabledisplay)											// ... inactivates at line 204
 		VertSubActive<=0;
 	end
 		
@@ -872,8 +968,8 @@ always @(posedge clk)
 			if(tedwrite && addr_in[5:0]==FLASH_VERTSUB)					// if it is written by user
 				VertSubCount<=data_in[2:0];
 			else 
-				if(inc_vertsub_window & single_cycle_end)					// if it is time to change VertSub
-						if (videoline==0)											// ... changes to 7 at line 0 FIXME: between cycle $C8 and $CA
+				if(inc_vertsub_window & single_cycle_end)				// if it is time to change VertSub
+						if (videoline==0)								// ... changes to 7 at line 0 FIXME: between cycle $C8 and $CA
 							VertSubCount<=3'd7;
 						else if(enabledisplay & VertSubActive) 
 							VertSubCount<=VertSubCount+1'd1;					// ... increases between line 0 and 204
@@ -915,55 +1011,57 @@ always @(hcounter)
 	hpos_304=0;
 	hpos_312=0;
 	hpos_320=0;
-	hpos_321=0;
 	hpos_336=0;
 	hpos_343=0;
 	hpos_348=0;
-	hpos_352=0;
+	hpos_353=0;
 	hpos_359=0;
 	hpos_380=0;
 	hpos_382=0;
 	hpos_384=0;
 	hpos_391=0;
 	hpos_392=0;
+	hpos_394=0;
 	hpos_400=0;
 	hpos_407=0;
-	hpos_424=0;
+	hpos_418=0;
+	hpos_423=0;
 	hpos_431=0;
 	hpos_432=0;
 	hpos_440=0;
 	case (hcounter)
-				0:		hpos_0=1;				// Start of 40 column screen
-				1:    hpos_1=1;
-				8:		hpos_8=1;				// Start of 38 column screen
-				154:  hpos_154=1;				// Equalization pulse 1 start
+				1:      hpos_1=1;
+				455:	hpos_0=1;				// Start of 40 column screen - 1
+				7:		hpos_8=1;				// Start of 38 column screen - 1
+				154:    hpos_154=1;				// Equalization pulse 1 start
 				172:	hpos_172=1;				// Equalization pulse 1 end
 				288:	hpos_288=1;				//	CharPosition and Videocounter latch position delayed by 1 cycle (starts at 296)
 				295:	hpos_295=1;				// Attribute fetch (DMA) FSM stop
 				296:	hpos_296=1;				// Stop external fetch single clock delayed by 1 cycle
 													// Start refresh singleclock delayed by 1 cycle (actual start at 304)
 				303:	hpos_303=1;				// Start refresh counter increment (304 in real TED)
-				304:  hpos_304=1;				// End of character window
-				312:	hpos_312=1;				// End of 38 column screen
-				320: 	hpos_320=1;				// End of 40 column screen
-				321:  hpos_321=1;
-				336:  hpos_336=1;				// Stop refresh singleclock but delayed by 2 cycle (actual stop at 344)
+				304:    hpos_304=1;				// End of character window
+				311:	hpos_312=1;				// End of 38 column screen - 1
+				319: 	hpos_320=1;				// End of 40 column screen - 1 
+				321:    hpos_321=1;
+				336:    hpos_336=1;				// Stop refresh singleclock but delayed by 2 cycle (actual stop at 344)
 				343:	hpos_343=1;				// Stop refresh counter increment (344 in real TED)
 				348:	hpos_348=1;				// Flash (blink) counter increment point delayed by 2 cycles (increments at 352)
-				352:	hpos_352=1;				// Horizontal blanking start
-				359:	hpos_359=1;				// Horizontal sync start (358 in real TED however line change takes time thus the delay)				
+				353:	hpos_353=1;				// Horizontal blanking start
+				359:	hpos_359=1;				// Horizontal sync start (358 in real TED however line change takes time thus the delay)
 				380:	hpos_380=1;
 				382:	hpos_382=1;				// Equalization pulse 2 start
 				384:	hpos_384=1;				// End Of Screen. Clear vertical line,refresh counters and character reload register, increase vertical line after 1 cycle delay
 				391: 	hpos_391=1;	
 				392:	hpos_392=1;				// VertSub register increment (delayed), Hsync end
-				400:  hpos_400=1;				// Start external fetch single clock (delayed), Equalization pulse 2 end
+				394:	hpos_394=1;				//	Burst signal start
+				400:    hpos_400=1;				// Start external fetch single clock (delayed), Equalization pulse 2 end
 				407:	hpos_407=1;				// Attribute fetch (DMA) FSM start
-				424:	hpos_424=1;				// Horizontal blanking stop
+				418:	hpos_418=1;				// Burst signal end
+				423:	hpos_423=1;				// Horizontal blanking stop
 				431:	hpos_431=1;				// Refresh counter reset point
 				432:	hpos_432=1;				// Start videocounter increment
-				440:  hpos_440=1;				// Start video shiftregister
-				default:;
+				440:    hpos_440=1;				// Start video shiftregister
 	endcase				
 end
 
@@ -971,7 +1069,7 @@ end
 // Border control
 //---------------------------------------------------------------------------
 
-always @(posedge clk)									// 25/24 row select and top/bottom borders
+always @(posedge clk)							// 25/24 row select and top/bottom borders
 	begin
 		if(rsel==1) begin
 			if(videoline==9'd4)					// if 25 rows mode, screen starts at line 4
@@ -987,19 +1085,18 @@ always @(posedge clk)									// 25/24 row select and top/bottom borders
 		end
 	end
 
-always @(posedge clk)									// 38/40 columns select and side borders
+// In the real TED (like in the VIC-II) the left/right border is controlled by a SINGLE flip-flop
+// whose set and reset positions are selected by the CSEL bit at the moment of the comparison.
+// (yapesdl tedmem.cpp: beamx 16/18 set, beamx 94/96 reset -> hcounter 0/8 and 312/320.)
+// Two independent flip-flops (one per screen width) give the same picture for a static CSEL, but
+// they make it impossible to change CSEL inside the line so that the reset event is skipped,
+// which is exactly how demos open the side border.
+always @(posedge clk)							// 38/40 columns select and side borders
 	begin
-		if(enabledisplay & verticalscreen) 
-			begin 
-				if(hpos_320 & tick8)
-					widescreen<=0;
-				else if (hpos_0 & tick8)
-					widescreen<=1;
-				if(hpos_312 & tick8)
-					narrowscreen<=0;
-				else if (hpos_8 & tick8)
-					narrowscreen<=1;
-			end
+		if(tick8 & ((csel & hpos_320)|(~csel & hpos_312)))
+			sideborder<=0;
+		else if(tick8 & enabledisplay & verticalscreen & ((csel & hpos_0)|(~csel & hpos_8)))
+			sideborder<=1;
 	end
 
 	
@@ -1011,7 +1108,7 @@ always @(posedge clk)									// 38/40 columns select and side borders
 	
 always @(posedge clk)
 	begin
-	if (hpos_312)
+	if (hpos_312 & tick8)
 		videoshift<=0;
 	else if(enabledisplay & hpos_440)
 		videoshift<=1;
@@ -1021,9 +1118,6 @@ always @(posedge clk)						// video shift register stores fetched video data unt
 	begin
 	if(hpos_440)
 		begin
-		waitingattr<=0;
-		waitingchar<=0;
-		waitingpixels<=0;
 		currentattr<=0;
 		currentchar<=0;
 		currentpixels<=0;
@@ -1033,47 +1127,60 @@ always @(posedge clk)						// video shift register stores fetched video data unt
 		if(phi)
 			begin
 			currentchar<=nextchar;
-			waitingchar<=currentchar;
 			currentattr<=nextattr;
-			waitingattr<=currentattr;
-			waitingpixels<=currentpixels;
 			currentcursor<=nextcursor;
-			waitingcursor<=currentcursor;
 			end
 		else if(~phi)
 			currentpixels<=nextpixels;
 		end
 	end
+
+always @(posedge clk)
+    begin
+	if(hpos_440)
+		begin
+		waitingattr<=0;
+		waitingchar<=0;
+		waitingpixels<=0;
+		end
+    else if(videoshift & pre_cycle_end & phi)
+        begin
+        waitingchar<=currentchar;
+        waitingattr<=currentattr;
+        waitingpixels<=currentpixels;
+        waitingcursor<=currentcursor;
+        end
+    else if(pre_cycle_end & phi)
+        waitingpixels<=8'b0;				// outside the character window the bitmap shift register is loaded with zeroes
+											// (plus4emu clears currentCharacter.bitmap_ when the shift register is disabled).
+											// Only visible when the side border is opened by changing CSEL inside the line.
+    end
 	
-wire cursor=(waitingcursor & ~FlashCount[4]);
+assign cursor=(waitingcursor & ~FlashCount[4]);
 
 //---------------------------------------------------------------------------
 // Pixel Generator
-// Final screen is delayed by 2 pixels 
+// Final screen is delayed by 1 pixel 
 //---------------------------------------------------------------------------
-always @(posedge clk)										// synchronize xscroll and display mode changes to single cycle border
+always @(posedge clk)
+    begin
+    if (cycle_end)
+            begin
+            xscroll_reg<=xscroll;
+            end
+     end
+	
+always @(posedge clk)										// video pixel shift register
 	begin
-	if (single_cycle_end)
-		begin
-		xscroll_latch<=xscroll;
-		ecm<=ecm_reg;
-		bmm<=bmm_reg;
-		reverse<=reverse_reg;
-		mcm<=mcm_reg;
-		end
-	end
-
-always @(posedge clk)										// video pixel shift tregister
-	begin
-	if(videoshift | widescreen)												// shift register works only when beam is on wide screen area
+	if(videoshift | sideborder)								// shift register works only when beam is on the visible screen area
 		begin
 		if(tick8)									
 			begin
 				doubleshift<=~doubleshift;
-				if(hcounter[2:0] == xscroll_latch)				// load register based on xscroll
+				if(hcounter[2:0]+3'b1 == xscroll_reg)		// load register based on xscroll
 					begin
 					doubleshift<=0;
-					if(cursor & ~bmm & ~ecm & ~mcm)		// when character is at cursor position and in Standard Character mode, load the invert of character mask
+					if(cursor & ~bmm & ~ecm & ~mcm)		    // when character is at cursor position and in Standard Character mode, load the invert of character mask
 						pixelshiftreg<=waitingpixels^8'hFF;
 					else pixelshiftreg<=waitingpixels;
 					pixelattr<=waitingattr;					// latch attribute and charpointer for pixelgenerator
@@ -1083,7 +1190,7 @@ always @(posedge clk)										// video pixel shift tregister
 					begin
 					if(~multicolor)
 						pixelshiftreg<={pixelshiftreg[6:0],1'b0};
-					else if(doubleshift)											// double pixel shifting
+					else if(doubleshift)					// double pixel shifting
 						pixelshiftreg<={pixelshiftreg[5:0],2'b0};
 					end
 			end
@@ -1092,10 +1199,10 @@ always @(posedge clk)										// video pixel shift tregister
 	end
 
 
-assign pixelscreen=(csel)?widescreen:narrowscreen;					// change between narrow and wide screens plus 1 pixel delay due to latch
+assign pixelscreen=sideborder;								// side border flip-flop state (narrow/wide selection is done by the flip-flop itself)
 
 
-assign multicolor= mcm & (ecm | pixelattr[3] | bmm);			// multicolor rendering is initiated when mcm=1 and either ecm,bmm or character attribute's 4th bit is 1
+assign multicolor= mcm & (ecm | pixelattr[3] | bmm);		// multicolor rendering is initiated when mcm=1 and either ecm,bmm or character attribute's 4th bit is 1
 
 
 always @*									// video pixel color generator
@@ -1105,13 +1212,13 @@ always @*									// video pixel color generator
 		begin
 			if (~bmm & ~ecm) 				// Standard and Multicolor Character modes
 				begin
-				if(~multicolor)					// Standard Character mode
+				if(~multicolor)				// Standard Character mode
 					begin
 					if((reverse|mcm)?pixelshiftreg[7]:(pixelshiftreg[7]& ~(pixelattr[7] & FlashCount[4]))^pixelchar[7])
 						pixelcolor=pixelattr[6:0];
 					end
 				else 
-					begin						// Multicolor Character mode
+					begin					// Multicolor Character mode
 						case(pixelshiftreg[7:6])
 							2'b00:	pixelcolor=bgcolor0;
 							2'b01:	pixelcolor=bgcolor1;
@@ -1133,7 +1240,7 @@ always @*									// video pixel color generator
 						endcase
 					end	
 				end
-			else if(~mcm & bmm & ~ecm)			// Standard Bitmap mode
+			else if(~mcm & bmm & ~ecm)		// Standard Bitmap mode
 				begin
 				if(pixelshiftreg[7])
 					pixelcolor={pixelattr[2:0],pixelchar[7:4]};
@@ -1148,7 +1255,7 @@ always @*									// video pixel color generator
 							2'b11:	pixelcolor=bgcolor1;
 						endcase
 				end
-			else										// invalid mode
+			else							// invalid mode
 				begin
 				pixelcolor=7'b0;
 				end
@@ -1222,17 +1329,18 @@ always @(posedge clk)								//	Horizontal sync pulse (due to original HMOS tech
 		hsync<=1;
 	end
 
-always @(posedge clk) begin							// horizontal blanking zone
-	if((wide && hpos_1) || (~wide && hpos_424)) begin										
+always @(posedge clk)							    // horizontal blanking zone
+	begin
+	if((wide && hpos_1) || (~wide && hpos_423)) begin										
 		if(videoline==VBLANK_STOP) vblank_out<=0;
 		hblank<=0;
-	end else if((wide && hpos_321) || (~wide && hpos_352)) begin		// in real TED it starts at 352 but slew rate takes 2 pixels. 353 is at halfway. FIXME: Might be initiated at 344.
+	end else if((wide && hpos_321) || (~wide && hpos_353)) begin		// in real TED it starts at 352 but slew rate takes 2 pixels. 353 is at halfway. FIXME: Might be initiated at 344.
 		if(videoline==VBLANK_START) vblank_out<=1;
 		hblank<=1;
 	end
 end
 
-always @(posedge clk)							// vertical blanking zone
+always @(posedge clk)							    // vertical blanking zone
 	begin
 	if(videoline==VBLANK_STOP)
 		vblank<=0;
@@ -1240,43 +1348,73 @@ always @(posedge clk)							// vertical blanking zone
 		vblank<=1;
 	end
 
+always @(posedge clk)							    // Burst signal generation for composite video signal (signals burst signal area)
+	begin
+	if(hpos_394)
+		burstreg<=1'b1;
+	else if (hpos_418)
+		burstreg<=1'b0;
+	end
+
 assign blanking=hblank|vblank;
 assign csync=csyncreg;
 assign color=colorreg;
+//assign burst=burstreg&~vblank;				        // during vblank period burst signal is supressed
+//assign even=videoline[0];					        // signals odd/even lines for external PAL video encoder
 
-//-----------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // Memory Controller
-//-----------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
-always @(posedge clk)		// Generating RAS, internal CAS and MUX signals based on clk28 cycle numbers. Not 100% precise reproduction of original TED timing but still in dram specifications
+always @(posedge clk)		    // Generating RAS, internal CAS and MUX signals based on clk28 cycle numbers. Not 100% precise reproduction of original TED timing but still in dram specifications
 	case (phicounter)			// one clk28 cycle is 35.35ns
-	1:		begin	
-				cs_io<=1;
-				cs_ram<=1;
-				cs0<=1;
-				cs1<=1;
+	1:		begin
+			ras<=1;
+			cas<=1;
+			mux<=1;
+			cs0<=1;
+			cs1<=1;
 			end
-	7:		if(io) cs_io<=0;
-			else if(~tedreg) begin
-				cs_ram<=0;
-				if(rw & ((~ramen & ~dotfetch_reg) | (charrom & dotfetch_reg ))) begin	// ROM chip select is controlled by ramen register or by charrom register depending on whether dot data is fetched from bus
-					cs0<=~lowrom;	         // Basic area
-					cs1<=~highrom;          // Kernal area
-					cs_ram<=lowrom|highrom; // RAM
+	6: 	ras<=0;				    // RAS goes low 35ns before MUX (20ns on real system)
+	7:		begin
+			mux<=0;				// MUX goes low when double phi changes to high at half double clock cycle, CS0,CS1 changes together with MUX when needed
+			if(rw)				// CS0,CS1 generation only on read cycles
+				begin
+				if((~ramen & ~dotfetch_reg) | (charrom & dotfetch_reg ))		// ROM chip select is controlled by ramen register or by charrom register depending on whether dot data is fetched from bus
+					begin
+					if(lowrom)	                            // Basic area
+						cs0<=0;
+					if(highrom & ~io & ~tedreg)	            // Kernal area
+						cs1<=0;
+					end
 				end
+			end
+	8:		if (rw & cs0 & cs1 & ~io & ~tedreg)				// when read cycle, CAS goes low 35ns after MUX (40ns on real system)
+				cas<=0;
+	11:	if (~rw & ~io & ~tedreg)							// when write cycle, CAS goes low 160ns after MUX
+				cas<=0;
+
+	default: 					                            // otherwise they don't change
+			begin
+			ras<=ras;
+			mux<=mux;
+			cas<=cas;
+			cs0<=cs0;
+			cs1<=cs1;
 			end
 	endcase
 
 
 // Generating memory area flags. 
-assign lowrom=(addr_in[15:14]==2'b10);							//$8000-$bfff		low rom area (Basic)
-assign highrom=(addr_in[15:14]==2'b11);							//$c000-$ffff		high rom area (Kernal, IO and TED area)
-assign io=(addr_in[15:8]==8'hFD || addr_in[15:8]==8'hFE);	//$fd00-$feff		IO space
-assign tedreg=(addr_in[15:6]==10'b1111111100 && (addr_in[5]==0 || addr_in[5:1]==7'b11111));		//$ff00-$ff1f  & $ff3e-$ff3f		TED registers
 
-//-----------------------------------------------------------------------------------------------
+assign lowrom=(addr_in[15:14]==2'b10)?1'b1:1'b0;						//$8000-$bfff		low rom area (Basic)
+assign highrom=(addr_in[15:14]==2'b11)?1'b1:1'b0;						//$c000-$ffff		high rom area (Kernal, IO and TED area)
+assign io=(addr_in[15:8]==8'hFD || addr_in[15:8]==8'hFE)?1'b1:1'b0;		//$fd00-$feff		IO space
+assign tedreg=(addr_in[15:6]==10'b1111111100 && (addr_in[5]==0 || addr_in[5:1]==7'b11111))?1'b1:1'b0;						//$ff00-$ff1f  & $ff3e-$ff3f		TED registers
+
+//---------------------------------------------------------------------------
 // Generating TED address out
-//-----------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
 assign addr_out=(~aec)?addr_out_reg:16'hffff;
 
@@ -1296,42 +1434,40 @@ always @*
 	begin
 	tedaddress=16'hffff;
 	dotfetch=0;
-	if(phi==0)						// generating address for phi1 phase (will be clocked and valid in phi1)
+	if(phi==0)						                                            // generating address for phi1 phase (will be clocked and valid in phi1)
 		begin
 		if(dma_state==TDMA)
 			tedaddress={vmbase,(badline)?1'b0:1'b1,videocounter};				// attribute or character pointer fetch address
 		end
+	else if(refresh_inc|stopreg)				                                // dram refresh address
+			tedaddress={8'hff,refreshcounter};	
 	else //if(~test)	
-		begin						 // generating address for phi0 phase (will be clocked and valid in phi0)
-		if(refresh_inc|stopreg)				// dram refresh address
-			tedaddress={8'hff,refreshcounter};
-		else if(inc_charpos & char_fetch)
+		begin						                                            // generating address for phi0 phase (will be clocked and valid in phi0)
+        if(inc_charpos & char_fetch)
 			begin
 			dotfetch=1;
-			if(~bmm)				// Text mode fetch address
+			if(~bmm)				                                           // Text mode fetch address
 				begin
 				tedaddress=(~reverse)?{charbase[5:0],charpointer[6:0],VertSubCount}:{charbase[5:1],charpointer,VertSubCount};
 				tedaddress[10:9]=(ecm)?2'b00:tedaddress[10:9];
 				end
 			else
-				tedaddress={bmapbase,CharPosition,VertSubCount};	// bitmap mode fetch address
+				tedaddress={bmapbase,CharPosition,VertSubCount};	          // bitmap mode fetch address
 			end
 		end
-		/*
-	else begin					// IC test mode fetch addresses
-			dotfetch=1;
+/*	else begin					// IC test mode fetch addresses. Temporarily disabled
+	     dotfetch=1;
 			if(~bmm)
-				tedaddress={5'h18,attrpointer,VertSubCount};				// test mode character screen
+			     tedaddress={5'b11111,attrpointer,VertSubCount};				// test mode character screen
 			else tedaddress={3'b111,(CharPosition && {2'b11,attrpointer}),VertSubCount};
-			end
-			*/
+		end */
 	end
 
-//-----------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // TED registers write
-//-----------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
-assign tedwrite=tedreg&~rw&cycle_end;		// It signals TED register write which happens always when rw is low and end of double clock cycle
+assign tedwrite=tedreg&~rw&cycle_end;		            // It signals TED register write which happens always when rw is low and end of double clock cycle
 assign tedlatch=tedwrite_delay & (phicounter==3);		// trying to simulate when exactly the hcounter is written by TED
 
 always @(posedge clk)
@@ -1346,7 +1482,7 @@ always @(posedge clk)
 	begin
 	if(reset) ramen <= 0;
 	resetRasterIrq<=1'b0;
-	//resetLpIrq<=1'b0;
+	resetLpIrq<=1'b0;
 	resetCnt1Irq<=1'b0;
 	resetCnt2Irq<=1'b0;
 	resetCnt3Irq<=1'b0;
@@ -1358,29 +1494,39 @@ always @(posedge clk)
 				CONTROL1:	// $FF06	
 							begin
 							test<=data_in[7];
-							ecm_reg<=data_in[6];
-							bmm_reg<=data_in[5];
 							den<=data_in[4];
 							rsel<=data_in[3];
+							ecm_reg<=data_in[6];         // when write happens on non single cycle end then change is delayed in these registers until single cycle end
+							bmm_reg<=data_in[5];
 							yscroll<=data_in[2:0];
+							if(single_cycle_end)         // when write happens on single cycle end then change happens immediately
+							     begin						     
+							     ecm<=data_in[6];
+							     bmm<=data_in[5];
+							     end
 							end
 				CONTROL2:	// $FF07
 							begin
-							reverse_reg<=data_in[7];
 							palreg<=data_in[6];
 							stop<=data_in[5];
-							mcm_reg<=data_in[4];
 							csel<=data_in[3];
+							reverse_reg<=data_in[7];     // when write happens on non single cycle end then change is delayed in these registers until single cycle end
+							mcm_reg<=data_in[4];
 							xscroll<=data_in[2:0];
+							if(single_cycle_end)         // when write happens on single cycle end then change happens immediately
+							     begin
+							     reverse<=data_in[7];								
+							     mcm<=data_in[4];
+							     end		     
 							end
 				KEYLATCH:	// $FF08
 							keylatch<=k[7:0];
-				IRQ:			// $FF09
+				IRQ:		// $FF09
 							begin
 							resetCnt3Irq<=data_in[6];
 							resetCnt2Irq<=data_in[4];
 							resetCnt1Irq<=data_in[3];
-							//resetLpIrq<=data_in[2];
+							resetLpIrq<=data_in[2];
 							resetRasterIrq<=data_in[1];
 							end
 				IRQEN:		// $FF0A
@@ -1425,22 +1571,22 @@ always @(posedge clk)
 				VIDEOBASE:	// $FF14
 							vmbase<=data_in[7:3];
 				BGCOLOR0:	// $FF15 , color change at cycle start, emulating white pixel bug (for all 5 color registers)
-							bgcolor0<=7'h7f;
+							bgcolor0<=8'hff;
 				BGCOLOR1:	// $FF16
-							bgcolor1<=7'h7f;
+							bgcolor1<=8'hff;
 				BGCOLOR2:	// $FF17
-							bgcolor2<=7'h7f;
+							bgcolor2<=8'hff;
 				BGCOLOR3:	// $FF18
-							bgcolor3<=7'h7f;
+							bgcolor3<=8'hff;
 				EXCOLOR:		// $FF19
-							excolor<=7'h7f;
+							excolor<=8'hff;
 				ROMEN:		ramen<=1'b0;
 				RAMEN:		ramen<=1'b1;
 				default:;
 			endcase
 		end
-									    // Color registers write (white pixel bug emulation)
-	else if (tedlatch)			// these events happen 1 pixel later after cycle start, setting the proper color to color registers
+							// Color registers write (white pixel bug emulation)
+	else if (tedlatch)		// these events happen 1 pixel later after cycle start, setting the proper color to color registers
 		case(addr_in_reg[5:0])
 				BGCOLOR0:	// $FF15
 							bgcolor0<=data_in_reg[6:0];
@@ -1450,10 +1596,17 @@ always @(posedge clk)
 							bgcolor2<=data_in_reg[6:0];
 				BGCOLOR3:	// $FF18
 							bgcolor3<=data_in_reg[6:0];
-				EXCOLOR:		// $FF19
+				EXCOLOR:	// $FF19
 							excolor<=data_in_reg[6:0];
 				default:;
 		endcase
+	else if (single_cycle_end)         // if there is no TED write at single cycle end, sync non single cycle writes to single cycle end
+	   begin
+	   ecm<=ecm_reg;
+	   bmm<=bmm_reg;
+	   reverse<=reverse_reg;
+	   mcm<=mcm_reg;
+	   end
 	end
 
 // TED register read
@@ -1514,7 +1667,7 @@ always @(posedge clk)
 							dataout_reg[6]<=enCnt3Irq;
 							dataout_reg[4]<=enCnt2Irq;
 							dataout_reg[3]<=enCnt1Irq;
-							dataout_reg[2]<=enLPIrq;			// lightpen irq enable bit is implemented in TED
+							dataout_reg[2]<=enLPIrq;		// lightpen irq enable bit is implemented in TED
 							dataout_reg[1]<=enRasterIrq;
 							dataout_reg[0]<=RasterCmp[8];
 							end
@@ -1570,7 +1723,7 @@ always @(posedge clk)
 				CHARPOSRELOADLO: //$FF1B
 							dataout_reg<=CharPosReload[7:0];
 				VSCANPOSHI:	// $FF1C
-							dataout_reg[0]<=vcounter[8];
+							dataout_reg[0]<=vcounter[8];				
 				VSCANPOSLO: // $FF1D
 							dataout_reg<=vcounter[7:0];
 				HSCANPOS:	// $FF1E
@@ -1598,14 +1751,18 @@ always @(posedge clk)
 	end
 
 assign data_out=(datahold)?dataout_reg:8'hff;
+//assign data_oe=datahold;									// datab buffer OE signal
 
-//--------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // TED audio generator
-//--------------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 
 assign snd=(ch1audio ? digivolume : 5'd0)+(ch2audio ? digivolume : 5'd0); // mixing audio channel signals
+reg [15:0] dacvolume;
 
-always @(posedge clk)						//	audio cycle counter divides single clock by 4
+assign digi_sound=(ch1audio ? dacvolume : 15'd0)+(ch2audio ? dacvolume : 15'd0);
+
+always @(posedge clk)						            //	audio cycle counter divides single clock by 4
 	begin
 	if(single_cycle_end)
 		audiocycle<=audiocycle+1'd1;
@@ -1628,16 +1785,16 @@ always @(posedge clk)
 
 assign ch1stateclk=(ch1count==10'h3ff)?1'b1:1'b0;
 
-always @(posedge clk)	// Channel 1 state clock rising edge detection 
+always @(posedge clk)	                                // Channel 1 state clock rising edge detection 
 	begin
 	ch1stateclk_prev<=ch1stateclk;
 	if(damode|watchdog_ch1max)							// reset ch1state if damode is enabled or watchdog timer expires
 		ch1state<=0;
-	else if(~ch1stateclk_prev & ch1stateclk)		// if rising edge
-				ch1state<=~ch1state;						// change channel 1 state
+	else if(~ch1stateclk_prev & ch1stateclk)		    // if rising edge
+				ch1state<=~ch1state;					// change channel 1 state
 	end
 	
-assign ch1audio=(ch1en)?~ch1state:1'b0;		// ch1audio before D/A conversion
+assign ch1audio=(ch1en)?~ch1state:1'b0;		            // ch1audio before D/A conversion
 
 always @(posedge clk)									// emulating dynamic latch behaviour using watchdog timer (forgets setting after 188416 * audio clock cycles)
 	begin
@@ -1663,20 +1820,20 @@ always @(posedge clk)
 
 assign ch2stateclk=(ch2count==10'h3ff)?1'b1:1'b0;
 
-always @(posedge clk)	// Channel 2 state clock rising edge detection 
+always @(posedge clk)	                                // Channel 2 state clock rising edge detection 
 	begin
 	ch2stateclk_prev<=ch2stateclk;
-	if(damode)												// reset ch2state if damode is enabled
+	if(damode|watchdog_ch2max)						    // reset ch2state if damode is enabled or watchdog timer expires
 		ch2state<=0;
-	else if(~ch2stateclk_prev & ch2stateclk)		// if rising edge
-				ch2state<=~ch2state;						// change channel 2 state
+	else if(~ch2stateclk_prev & ch2stateclk)		    // if rising edge
+				ch2state<=~ch2state;					// change channel 2 state
 	end
 	
-assign ch2audio=(ch2en)?~ch2state:noise;		// ch2audio combined with noise before D/A conversion
+assign ch2audio=(ch2en)?~ch2state:noise;		        // ch2audio combined with noise before D/A conversion
 
 always @(posedge clk)									// emulating dynamic latch behaviour using watchdog timer (forgets setting after 188416 * audio clock cycles)
 	begin
-	if((~ch2stateclk_prev & ch2stateclk)|watchdog_ch2max)		// reset watchdog timer at channel1 state change or when maximum time reached
+	if((~ch2stateclk_prev & ch2stateclk)|watchdog_ch2max)		// reset watchdog timer at channel2 state change or when maximum time reached
 		watchdog_ch2<=0;
 	else if(ch2clk)										// watchdog timer counts with audio clock cycles
 		watchdog_ch2<=watchdog_ch2+1'd1;
@@ -1701,7 +1858,7 @@ always @(posedge clk)
 		end
 	end
 
-assign noise=(ch2noise)?noisegen[0]:1'b0;		// noise signal
+assign noise=(ch2noise)?noisegen[0]:1'b0;		        // noise signal
 
 always @*								// volume value conversion to pwmcounter numbers where PWM signal high value starts
 	begin
@@ -1716,6 +1873,24 @@ always @*								// volume value conversion to pwmcounter numbers where PWM sign
 				7: digivolume=13;
 		default:	digivolume=15;
 	endcase
+	end
+
+parameter GAIN=1;
+
+always @*								                // volume value conversion for 16bit PCM signal
+	begin
+	case (volume)
+		0:		dacvolume=0>>GAIN;
+		1:		dacvolume=2920>>GAIN;
+		2:		dacvolume=4125>>GAIN;
+		3:		dacvolume=5827>>GAIN;
+		4:		dacvolume=8231>>GAIN;
+		5:		dacvolume=11626>>GAIN;
+		6:		dacvolume=16422>>GAIN;
+		7:		dacvolume=23197>>GAIN;
+		8:		dacvolume=32767>>GAIN;
+		default:	dacvolume=32767>>GAIN;
+ 	endcase
 	end
 
 endmodule
