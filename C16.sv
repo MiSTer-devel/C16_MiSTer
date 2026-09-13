@@ -43,7 +43,7 @@ assign HDMI_BOB_DEINT = 0;
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X XXXXXXXXXX XXXXXXXX  XXXX      XXXXXXXXX  X XXXX
+// X XXXXXXXXXX XXXXXXXX  XXXX      XXXXXXXXX  X XXXXX
 
 `include "build_id.v" 
 parameter CONF_STR = {
@@ -78,6 +78,7 @@ parameter CONF_STR = {
 	"d5d9D7P1O[40:38],Left Fc Offset,0,1,2,3,4,5;",
 	"d5d8D6P1O[48:46],Right Fc Offset,0,1,2,3,4,5;",
 	"d5P1O[43],SID Ports,Mirror,Split;",
+	"d5P1O[49],SID Card Mode,Plus/4,C64;",
 	"d5P1O[45],8580 Digifix,On,Off;",
 	"d5P1FC7,FLT,Load Custom Filters;",
 
@@ -501,6 +502,7 @@ C16 c16
 	.sid_fc_off_r( status[37] ? (13'h600 - {status[48:46],7'd0}) : 13'd0 ),
 	.sid_digifix ( ~status[45] ),
 	.sid_mode    ( status[43] ),
+	.sid_c64     ( status[49] ),
 	.audio_l     ( AUDIO_L ),
 	.audio_r     ( AUDIO_R ),
 	.sid_ld_addr ( sid_ld_addr ),
