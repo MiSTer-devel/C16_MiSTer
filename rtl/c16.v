@@ -76,8 +76,21 @@ module C16
 	output        IEC_ATNOUT,
 	output        IEC_RESET,
 
-	output [15:0] sound,
-	input   [1:0] sid_type,
+	output [15:0] audio_l,
+	output [15:0] audio_r,
+	input         sid_enabled,
+	input   [1:0] sid_ver,
+	input   [3:0] sid_cfg,
+	input   [1:0] sid_filter,
+	input  [12:0] sid_fc_off_l,
+	input  [12:0] sid_fc_off_r,
+	input         sid_digifix,
+	input         sid_mode,
+	input         sid_c64,
+
+	input  [11:0] sid_ld_addr,
+	input  [15:0] sid_ld_data,
+	input         sid_ld_wr,
 
 	output        PAL
 );
@@ -130,45 +143,97 @@ mos8501 cpu
 // internal SID Card enhancement
 // -----------------------------------------------------------------------
 
-// this process divides 28 MHz to ~986KHz (for the SID)
-reg ce_sid;
-always @(posedge CLK28)	begin
-	reg [5:0] div = 0;
-	
-	div <= div  + 1'd1;
-	if(div == 28) div <= 0;
-	ce_sid <= !div;
-end
-
-// valid adresses for SID: FD40-FD5F and FE80-FE9F
-wire cs_sid = (c16_addr[15:5] == 'b1111_1101_010) || (c16_addr[15:5] == 'b1111_1110_100);
-
+wire        ce_sid;
+wire  [1:0] sid_cs;
+wire        sid_we;
+wire  [7:0] sid_data;
 wire  [7:0] sid_dout;
-wire [17:0] sid_audio;
-sid_top #(.MULTI_FILTERS(0), .DUAL(0)) sid
+wire  [7:0] digi_l, digi_r;
+wire  [3:0] sid_card_cfg;
+
+sid_card sid_card
+(
+	.clk(CLK28),
+	.reset(sreset),
+
+	.enabled(sid_enabled),
+	.c64(sid_c64),
+	.split(sid_mode),
+	.pal(PAL),
+	.sid_ver(sid_ver[0]),
+
+	.mux(mux),
+	.addr(c16_addr),
+	.rnw(RnW),
+	.data_in(cpu_data),
+	.sid_dout(sid_dout),
+
+	.sid_cs(sid_cs),
+	.sid_we(sid_we),
+	.data_out(sid_data),
+
+	.ce_sid(ce_sid),
+	.digi_l(digi_l),
+	.digi_r(digi_r),
+	.cfg(sid_card_cfg)
+);
+
+wire [17:0] sid_audio_l;
+wire [17:0] sid_audio_r;
+
+sid_top sid
 (
 	.reset(sreset),
 	.clk(CLK28),
 	.ce_1m(ce_sid),
-
-	.we(~RnW & cs_sid),
+	
+	.cs(sid_cs),
+	.we(sid_we),
 	.addr(c16_addr[4:0]),
-	.data_in(c16_data),
+	.data_in(cpu_data),
 	.data_out(sid_dout),
 
-	.audio_l(sid_audio),
+	.audio_l(sid_audio_l),
+	.audio_r(sid_audio_r),
 
-	.filter_en(1),
-	.mode(sid_type[1]),
-	.cfg(0)
+	.ext_in_l({sid_ver[0] & sid_digifix, 17'd0}),
+	.ext_in_r({sid_ver[1] & sid_digifix, 17'd0}),
+
+	.filter_en(sid_filter),
+	.mode(sid_ver),
+	.cfg(sid_cfg),
+
+	.fc_offset_l(sid_fc_off_l),
+	.fc_offset_r(sid_fc_off_r),
+
+	.ld_clk(CLK28),
+	.ld_data(sid_ld_data),
+	.ld_addr(sid_ld_addr),
+	.ld_wr(sid_ld_wr)
 );
-
-wire  [7:0] sid_data  = (RnW & cs_sid) ? sid_dout : 8'hFF;
 
 // -----------------------------------------------------------------------
 
-wire [16:0] mix_audio = (sid_type ? {sid_audio[17], sid_audio[17:2]} : 17'd0) + {ted_digi[15], ted_digi} + {cass_aud, 10'd0};
-assign sound = ($signed(mix_audio) > $signed(17'd32767)) ? 16'd32767 : ($signed(mix_audio) < $signed(-17'd32768)) ? $signed(-16'd32768) : mix_audio[15:0];
+reg [15:0] alo, aro;
+always @(posedge CLK28) begin
+	reg [17:0] alm, arm;
+
+	alm <= {{2{ted_digi[15]}}, ted_digi}
+	     + (sid_enabled ? {{2{sid_audio_l[17]}}, sid_audio_l[17:2]} : 18'd0)
+	     + {3'b000, digi_l, 7'd0}
+	     + {cass_aud, 10'd0};
+
+	arm <= {{2{ted_digi[15]}}, ted_digi}
+	     + (sid_enabled ? {{2{sid_audio_r[17]}}, sid_audio_r[17:2]} : 18'd0)
+	     + {3'b000, digi_r, 7'd0}
+	     + {cass_aud, 10'd0};
+
+	alo <= (&alm[17:15] | ~|alm[17:15]) ? alm[15:0] : {alm[17], {15{~alm[17]}}};
+	aro <= (&arm[17:15] | ~|arm[17:15]) ? arm[15:0] : {arm[17], {15{~arm[17]}}};
+end
+
+assign audio_l = alo;
+assign audio_r = aro;
 
 // -----------------------------------------------------------------------
 

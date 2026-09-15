@@ -43,7 +43,7 @@ assign HDMI_BOB_DEINT = 0;
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X XXXXXXXXXX XX XXXXX  XXXX
+// X XXXXXXXXXX XXXXXXXX  XXXX      XXXXXXXXX  X XXXXX
 
 `include "build_id.v" 
 parameter CONF_STR = {
@@ -68,7 +68,21 @@ parameter CONF_STR = {
 	"h2d1ONO,Vertical Crop,No,270,216;",
 	"OPQ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"ODE,SID card,Disabled,6581,8580;",
+
+	"P1,Audio;", 
+	"P1OD,SID card,Disabled,Enabled;",
+	"d5P1O[14],Left SID,6581,8580;",
+	"d5P1O[15],Right SID,6581,8580;",
+	"d5d9P1O[34:32],Left Filter,Default,Custom 1,Custom 2,Custom 3,Adjustable;",
+	"d5d8P1O[37:35],Right Filter,Default,Custom 1,Custom 2,Custom 3,Adjustable;",
+	"d5d9D7P1O[40:38],Left Fc Offset,0,1,2,3,4,5;",
+	"d5d8D6P1O[48:46],Right Fc Offset,0,1,2,3,4,5;",
+	"d5P1O[43],SID Ports,Mirror,Split;",
+	"d5P1O[49],SID Card Mode,Plus/4,C64;",
+	"d5P1O[45],8580 Digifix,On,Off;",
+	"d5P1FC7,FLT,Load Custom Filters;",
+
+	"-;",
 	"OB,External IEC,Disabled,Enabled;",
 	"-;",
 	"O9,Model,C16,Plus/4;",
@@ -153,7 +167,7 @@ end
 
 /////////////////  HPS  ///////////////////////////
 
-wire [31:0] status;
+wire [127:0] status;
 wire  [1:0] buttons;
 
 wire [15:0] joya, joyb;
@@ -188,7 +202,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2), .BLKSZ(1)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({model,tap_loaded,en1080p,|vcrop,~rom_loaded}),
+	.status_menumask({~status[14],~status[15],~status[34],~status[37],status[13],model,tap_loaded,en1080p,|vcrop,~rom_loaded}),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
@@ -222,6 +236,7 @@ wire load_prg = (ioctl_index == 'h01);
 wire load_tap = (ioctl_index == 'h41);
 wire load_crt = (ioctl_index == 'h81);
 wire load_rom = (ioctl_index == 'h03);
+wire load_flt = (ioctl_index == 'h07);
 
 /////////////////  RESET  /////////////////////////
 
@@ -442,7 +457,7 @@ wire  [7:0] c16_din = ram_dout & kernal0_dout & kernal1_dout & basic_dout & fh_d
 wire        c16_mux,c16_ras,c16_cas,cs0,cs1;
 C16 c16
 (
-	.CLK28   ( clk_sys ), // NTSC 28.636299, PAL 28.384615
+	.CLK28   ( clk_sys ), // PAL 28.375168, NTSC 28.636360
 	.RESET   ( reset ),
 	.WAIT    ( 0 ),
 	.PAL     ( pal ),
@@ -479,8 +494,20 @@ C16 c16
 	.ps2_key ( ps2_key ),
 	.key_play( key_play ),
 
-	.sid_type( status[14:13] ),
-	.sound   ( AUDIO_L ),
+	.sid_enabled ( status[13] ),
+	.sid_ver     ( {status[15],status[14]} ),
+	.sid_cfg     ( {status[36:35],status[33:32]} ),
+	.sid_filter  ( 2'b11 ),
+	.sid_fc_off_l( status[34] ? (13'h600 - {status[40:38],7'd0}) : 13'd0 ),
+	.sid_fc_off_r( status[37] ? (13'h600 - {status[48:46],7'd0}) : 13'd0 ),
+	.sid_digifix ( ~status[45] ),
+	.sid_mode    ( status[43] ),
+	.sid_c64     ( status[49] ),
+	.audio_l     ( AUDIO_L ),
+	.audio_r     ( AUDIO_R ),
+	.sid_ld_addr ( sid_ld_addr ),
+	.sid_ld_data ( sid_ld_data ),
+	.sid_ld_wr   ( sid_ld_wr ),
 
 	.IEC_DATAIN  ( c1541_iec_data_o & ext_iec_data ),
 	.IEC_CLKIN   ( c1541_iec_clk_o  & ext_iec_clk  ),
@@ -495,7 +522,6 @@ wire c16_iec_data_o;
 wire c16_iec_clk_o;
 wire c16_iec_reset_o;
 
-assign AUDIO_R = AUDIO_L;
 assign AUDIO_MIX = 0;
 assign AUDIO_S = 1;
 
@@ -597,6 +623,23 @@ video_mixer #(456, 1, 1) mixer
 	.VGA_HS(VGA_HS),
 	.VGA_DE(vga_de)
 );
+
+reg [11:0] sid_ld_addr = 0;
+reg [15:0] sid_ld_data = 0;
+reg        sid_ld_wr   = 0;
+always @(posedge clk_sys) begin
+	sid_ld_wr <= 0;
+	if(ioctl_wr && load_flt && ioctl_addr < 6144) begin
+		if(ioctl_addr[0]) begin
+			sid_ld_data[15:8] <= ioctl_dout;
+			sid_ld_addr <= ioctl_addr[12:1];
+			sid_ld_wr <= 1;
+		end
+		else begin
+			sid_ld_data[7:0] <= ioctl_dout;
+		end
+	end
+end
 
 ///////////////////////////////////////////////////
 

@@ -10,5 +10,6 @@ set_global_assignment -name VERILOG_FILE rtl/mos6529.v
 set_global_assignment -name VERILOG_FILE rtl/colors_to_rgb.v
 set_global_assignment -name VERILOG_FILE rtl/c16_keymatrix.v
 set_global_assignment -name VERILOG_FILE rtl/ted.v
+set_global_assignment -name VERILOG_FILE rtl/sid_card.v
 set_global_assignment -name VERILOG_FILE rtl/c16.v
 set_global_assignment -name SYSTEMVERILOG_FILE C16.sv
